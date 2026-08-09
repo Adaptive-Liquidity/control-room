@@ -1,0 +1,311 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  password      String?
+  name          String?
+  avatar        String?
+  role          UserRole  @default(EDITOR)
+  permissions   String[]  @default([])
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastLoginAt   DateTime?
+  isActive      Boolean   @default(true)
+
+  contents      Content[]
+  approvals     Approval[]
+  campaigns     Campaign[]
+  activities    ActivityLog[]
+
+  @@map("users")
+}
+
+model Content {
+  id              String        @id @default(cuid())
+  title           String
+  body            String        @db.Text
+  type            ContentType
+  status          ContentStatus @default(DRAFT)
+  channel         Channel
+  campaignId      String?
+
+  // Guardian scoring
+  guardianScore   Int           @default(0)
+  guardianChecks  Json?         // { forbiddenWords: bool, maturityBand: bool, sources: bool, disclaimer: bool, yieldPromise: bool, brandVoice: bool }
+  guardianFlags   Json?         // Array of flagged issues
+
+  // Predictive analytics
+  predictedEngagement Float?
+  predictedReach      Int?
+  predictedSignups    Int?
+
+  // Attribution
+  impressions     Int           @default(0)
+  engagements     Int           @default(0)
+  signups         Int           @default(0)
+  integrations    Int           @default(0)
+  treasuryImpact  Float         @default(0)
+
+  // Scheduling
+  scheduledAt     DateTime?
+  publishedAt     DateTime?
+
+  // Versioning
+  version         Int           @default(1)
+  parentId        String?
+
+  // Relations
+  authorId        String
+  author          User          @relation(fields: [authorId], references: [id])
+  approvals       Approval[]
+  campaign        Campaign?     @relation(fields: [campaignId], references: [id])
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@map("contents")
+}
+
+model Approval {
+  id          String          @id @default(cuid())
+  contentId   String
+  content     Content         @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  reviewerId  String
+  reviewer    User            @relation(fields: [reviewerId], references: [id])
+  status      ApprovalStatus
+  comment     String?
+  createdAt   DateTime        @default(now())
+
+  @@map("approvals")
+}
+
+model Campaign {
+  id            String          @id @default(cuid())
+  name          String
+  theme         CampaignTheme
+  audience      AudienceTier
+  status        CampaignStatus  @default(PLANNING)
+  startDate     DateTime
+  endDate       DateTime?
+  budget        Float?
+
+  // Attribution
+  totalImpressions  Int         @default(0)
+  totalEngagements  Int         @default(0)
+  totalSignups      Int         @default(0)
+  totalIntegrations Int         @default(0)
+
+  contents      Content[]
+  creatorId     String
+  creator       User            @relation(fields: [creatorId], references: [id])
+
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@map("campaigns")
+}
+
+model Agent {
+  id            String      @id @default(cuid())
+  name          String      @unique
+  type          AgentType
+  status        AgentStatus @default(OFFLINE)
+  config        Json        // Agent-specific configuration
+  metrics       Json?       // { tasksCompleted, successRate, avgLatency }
+  lastRunAt     DateTime?
+
+  // MCP Server connection
+  mcpEndpoint   String?
+  mcpStatus     McpStatus   @default(DISCONNECTED)
+
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@map("agents")
+}
+
+model ActivityLog {
+  id          String        @id @default(cuid())
+  userId      String?
+  user        User?         @relation(fields: [userId], references: [id])
+  agentId     String?
+  type        ActivityType
+  description String
+  metadata    Json?
+  createdAt   DateTime      @default(now())
+
+  @@map("activity_logs")
+}
+
+model GuardianRule {
+  id          String    @id @default(cuid())
+  type        RuleType
+  pattern     String    // Regex or keyword
+  severity    RuleSeverity
+  message     String
+  autoBlock   Boolean   @default(false)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+
+  @@map("guardian_rules")
+}
+
+model Integration {
+  id            String          @id @default(cuid())
+  name          String          @unique
+  type          IntegrationType
+  status        IntegrationStatus @default(DISCONNECTED)
+  credentials   Json?           // Encrypted credentials
+  config        Json?           // Integration-specific config
+  lastSyncAt    DateTime?
+  errorCount    Int             @default(0)
+
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@map("integrations")
+}
+
+// Enums
+enum UserRole {
+  ADMIN
+  MANAGER
+  EDITOR
+  VIEWER
+}
+
+enum ContentType {
+  TWITTER_THREAD
+  BLOG_POST
+  EMAIL
+  PRESS_RELEASE
+  AD_CREATIVE
+  VIDEO_SCRIPT
+  LINKEDIN_POST
+  DISCORD_MESSAGE
+}
+
+enum ContentStatus {
+  DRAFT
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  SCHEDULED
+  PUBLISHED
+  ARCHIVED
+}
+
+enum Channel {
+  TWITTER
+  LINKEDIN
+  DISCORD
+  EMAIL
+  BLOG
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  NEEDS_REVISION
+}
+
+enum CampaignTheme {
+  CONTROL_PLANE
+  BUILD_AGENTS
+  COMPLIANT_ARCHITECTURE
+  THE_FLYWHEEL
+  CUSTOM
+}
+
+enum AudienceTier {
+  TIER_1_AGENTS
+  TIER_2_DEFI
+  TIER_3_INFRASTRUCTURE
+  TIER_4_ENTERPRISE
+  ALL
+}
+
+enum CampaignStatus {
+  PLANNING
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ARCHIVED
+}
+
+enum AgentType {
+  CREATOR
+  PUBLISHER
+  ANALYZER
+  GUARDIAN
+}
+
+enum AgentStatus {
+  ONLINE
+  OFFLINE
+  BUSY
+  ERROR
+}
+
+enum McpStatus {
+  CONNECTED
+  DISCONNECTED
+  ERROR
+}
+
+enum ActivityType {
+  CONTENT_CREATED
+  CONTENT_UPDATED
+  CONTENT_APPROVED
+  CONTENT_REJECTED
+  CONTENT_PUBLISHED
+  AGENT_STARTED
+  AGENT_STOPPED
+  AGENT_ERROR
+  CAMPAIGN_LAUNCHED
+  INTEGRATION_CONNECTED
+  INTEGRATION_ERROR
+  USER_LOGIN
+  SETTINGS_CHANGED
+}
+
+enum RuleType {
+  FORBIDDEN_WORD
+  REQUIRED_LABEL
+  YIELD_PROMISE
+  REGULATORY_TERM
+  BRAND_VOICE
+  MATURITY_BAND
+}
+
+enum RuleSeverity {
+  INFO
+  WARNING
+  ERROR
+  CRITICAL
+}
+
+enum IntegrationType {
+  TWITTER
+  LINKEDIN
+  DISCORD
+  MAILCHIMP
+  GITHUB
+  FIREBASE
+}
+
+enum IntegrationStatus {
+  CONNECTED
+  DISCONNECTED
+  ERROR
+  SYNCING
+}
