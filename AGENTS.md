@@ -9,27 +9,27 @@ policy/audit plane in front of n8n for content approvals.
 
 ### Services (dev)
 - Next.js app — `npm run dev`, http://localhost:3000. Standard commands live in `package.json`.
-- PostgreSQL 16 — required. Start with `sudo pg_ctlcluster 16 main start` if not running.
+- PostgreSQL 16 — required.
+- Cursor Cloud boot: `.cursor/environment.json` runs `scripts/dev-env-start.sh` on start (Postgres,
+  `.env` bootstrap, `prisma migrate deploy`, guardian seed, ensure-dev-users) and starts the
+  Next.js terminal. If Postgres is not running manually: `sudo pg_ctlcluster 16 main start`.
 
-### Foundation migrations (important)
-The repo now uses Prisma Migrate. A baseline migration is marked applied in environments that
-previously used `db push`. The **`control_room_foundation` migration is generated for review and
-must be applied by a human** (`npx prisma migrate deploy`) before exercising:
-
-- Immutable revisions (`ContentRevision`)
-- n8n draft ingress / publish-receipt
-- Transactional approvals + outbox resume delivery
-
-After applying the foundation migration:
+### Foundation migrations
+Use Prisma Migrate (`npx prisma migrate deploy`), not `db push`. Cloud start script applies
+migrations automatically. After a fresh DB you can also run:
 
 ```bash
-npx tsx scripts/seed-guardian-rules.ts
+npx prisma migrate deploy
+npm run db:seed-guardian
+npx tsx scripts/ensure-dev-users.ts
 ```
 
-Also create an active `SERVICE` role user before calling `/api/integrations/n8n/drafts`.
+Dev users created by `ensure-dev-users` (local/cloud only):
+- `admin@aeon.test` / `AeonAdmin123!` (ADMIN)
+- `reviewer@aeon.test` / `AeonReview123!` (REVIEWER)
+- `service@aeon.test` / `AeonService123!` (SERVICE — required for n8n draft ingress)
 
-Do **not** run `db push` against the foundation schema in agent sessions unless explicitly asked —
-prefer migrate deploy. `prisma generate` after schema pulls is fine (does not apply SQL).
+`prisma generate` after schema pulls is fine (does not apply SQL).
 
 ### Auth / signup
 - Public signup is gated by `ALLOW_PUBLIC_SIGNUP`. When unset/false, only ADMIN (`settings.manage`)

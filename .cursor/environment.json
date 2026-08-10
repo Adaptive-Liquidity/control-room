@@ -1,0 +1,10 @@
+{
+  "install": "sudo apt-get update -qq\nsudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq postgresql postgresql-contrib >/dev/null\nnpm install\nnpx prisma generate",
+  "start": "bash scripts/dev-env-start.sh",
+  "terminals": [
+    {
+      "name": "Next.js dev server",
+      "command": "npm run dev"
+    }
+  ]
+}
