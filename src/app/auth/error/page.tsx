@@ -21,14 +21,10 @@ function AuthErrorContent() {
   return (
     <div className="rounded-lg border border-border bg-card p-6 shadow-soft">
       <div className="mb-6 text-center">
-        <div className="mx-auto mb-3 flex h-8 w-8 items-center justify-center rounded-md bg-primary text-xs font-semibold text-primary-foreground">
-          A
-        </div>
-        <h1 className="text-lg font-semibold tracking-tight">Authentication error</h1>
-        <p className="mt-1 text-sm text-muted-foreground">AEON Control Room</p>
+        <h1 className="text-lg font-semibold tracking-tight text-foreground/90">Authentication error</h1>
       </div>
 
-      <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-center text-sm text-red-700">
+      <div className="rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-center text-sm text-destructive">
         {message}
       </div>
 

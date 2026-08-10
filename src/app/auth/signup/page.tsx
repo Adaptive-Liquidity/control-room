@@ -40,16 +40,13 @@ export default function SignUpPage() {
   return (
     <div className="rounded-lg border border-border bg-card p-6 shadow-soft">
       <div className="mb-6">
-        <div className="mb-3 flex h-8 w-8 items-center justify-center rounded-md bg-primary text-xs font-semibold text-primary-foreground">
-          A
-        </div>
-        <h1 className="text-lg font-semibold tracking-tight">Create account</h1>
-        <p className="mt-1 text-sm text-muted-foreground">AEON Control Room</p>
+        <h1 className="text-lg font-semibold tracking-tight text-foreground/90">Create account</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Set up your workspace access</p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-3.5">
         {error && (
-          <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          <div className="rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">
             {error}
           </div>
         )}
@@ -64,7 +61,7 @@ export default function SignUpPage() {
             autoComplete="name"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
           />
         </div>
 
@@ -79,7 +76,7 @@ export default function SignUpPage() {
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
           />
         </div>
 
@@ -95,7 +92,7 @@ export default function SignUpPage() {
             minLength={8}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
           />
         </div>
 

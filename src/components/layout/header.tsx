@@ -24,11 +24,13 @@ export function Header() {
   const pageInfo = pageTitles[pathname] || { title: "AEON", subtitle: "" };
 
   return (
-    <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-border bg-card/90 px-6 backdrop-blur-sm">
+    <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center justify-between border-b border-border bg-background/95 px-7 backdrop-blur-sm">
       <div className="min-w-0">
-        <h1 className="truncate text-base font-semibold tracking-tight">{pageInfo.title}</h1>
+        <h1 className="truncate text-[15px] font-semibold tracking-tight text-foreground/90">
+          {pageInfo.title}
+        </h1>
         {pageInfo.subtitle && (
-          <p className="truncate text-xs text-muted-foreground">{pageInfo.subtitle}</p>
+          <p className="truncate text-[11px] text-muted-foreground">{pageInfo.subtitle}</p>
         )}
       </div>
       <div className="flex items-center gap-2">
@@ -38,9 +40,6 @@ export function Header() {
         <Button asChild size="sm" className="h-8 text-xs font-medium">
           <Link href="/campaigns">New campaign</Link>
         </Button>
-        <div className="ml-1 flex h-8 w-8 items-center justify-center rounded-full border border-border bg-secondary text-[11px] font-semibold text-foreground">
-          AC
-        </div>
       </div>
     </header>
   );

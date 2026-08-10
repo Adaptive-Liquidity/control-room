@@ -10,18 +10,6 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Remapped to light institutional palette (legacy class names kept for pages)
-        aeon: {
-          navy: "#F7F8FA",
-          "navy-1": "#FFFFFF",
-          "navy-2": "#F1F3F5",
-          "navy-3": "#E5E7EB",
-          "navy-4": "#D1D5DB",
-          "navy-5": "#9CA3AF",
-          teal: "#1E3A5F",
-          "teal-dim": "rgba(30, 58, 95, 0.08)",
-          "teal-glow": "rgba(30, 58, 95, 0.12)",
-        },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
@@ -55,6 +43,8 @@ const config: Config = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        success: "hsl(var(--success))",
+        warning: "hsl(var(--warning))",
       },
       fontFamily: {
         sans: ["var(--font-sans)", "system-ui", "sans-serif"],
@@ -66,7 +56,7 @@ const config: Config = {
         sm: "calc(var(--radius) - 4px)",
       },
       boxShadow: {
-        soft: "0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.06)",
+        soft: "0 1px 0 rgba(255, 255, 255, 0.02), 0 2px 6px rgba(0, 0, 0, 0.45)",
       },
       keyframes: {
         "accordion-down": {

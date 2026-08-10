@@ -2,6 +2,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { StatusDot } from "@/components/ui/status-dot";
 
 export default function AgentsPage() {
   const agents = [
@@ -27,7 +28,7 @@ export default function AgentsPage() {
           <Card key={agent.name}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
               <div className="flex items-center gap-2.5">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" />
+                <StatusDot status={agent.status === "ONLINE" ? "online" : "offline"} />
                 <CardTitle>{agent.name}</CardTitle>
               </div>
               <Badge variant="success">{agent.status}</Badge>
@@ -63,7 +64,7 @@ export default function AgentsPage() {
                   mcp.status === "connected" ? "border-border" : "border-border opacity-60"
                 }`}
               >
-                <span className={`h-1.5 w-1.5 rounded-full ${mcp.status === "connected" ? "bg-emerald-600" : "bg-red-500"}`} />
+                <StatusDot status={mcp.status === "connected" ? "online" : "error"} />
                 <div className="min-w-0 flex-1">
                   <div className="text-sm font-medium">{mcp.name}</div>
                   <div className="truncate font-mono text-[10px] text-muted-foreground">{mcp.endpoint}</div>

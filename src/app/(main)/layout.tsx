@@ -9,9 +9,9 @@ export default function MainLayout({
   return (
     <div className="min-h-screen bg-background">
       <Sidebar />
-      <div className="ml-[240px] min-h-screen flex flex-col">
+      <div className="ml-[212px] min-h-screen flex flex-col">
         <Header />
-        <main className="flex-1 px-6 py-5 pb-10">{children}</main>
+        <main className="animate-fade-in flex-1 px-7 py-6 pb-10">{children}</main>
       </div>
     </div>
   );

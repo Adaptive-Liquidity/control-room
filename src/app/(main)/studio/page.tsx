@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -69,7 +70,7 @@ export default function StudioPage() {
               <div className="space-y-2">
                 {Object.entries(guardianResult.checks).map(([key, passed]: [string, any]) => (
                   <div key={key} className="flex items-center gap-2 border-b border-border py-1.5 last:border-0">
-                    <span className={passed ? "text-emerald-700" : "text-red-600"}>{passed ? "Pass" : "Fail"}</span>
+                    <Badge variant={passed ? "success" : "destructive"}>{passed ? "Pass" : "Fail"}</Badge>
                     <span className="text-xs text-muted-foreground">
                       {key.replace(/([A-Z])/g, " $1").replace(/^./, (str) => str.toUpperCase())}
                     </span>

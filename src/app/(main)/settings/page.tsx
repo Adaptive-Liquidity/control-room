@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { StatusDot } from "@/components/ui/status-dot";
 
 const tabs = [
   { id: "general", label: "General" },
@@ -116,7 +117,7 @@ export default function SettingsPage() {
                     mcp.status === "connected" ? "border-border" : "border-border opacity-60"
                   }`}
                 >
-                  <span className={`h-1.5 w-1.5 rounded-full ${mcp.status === "connected" ? "bg-emerald-600" : "bg-red-500"}`} />
+                  <StatusDot status={mcp.status === "connected" ? "online" : "error"} />
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-medium">{mcp.name}</div>
                     <div className="truncate font-mono text-[10px] text-muted-foreground">{mcp.endpoint}</div>

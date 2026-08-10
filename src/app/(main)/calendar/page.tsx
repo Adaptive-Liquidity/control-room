@@ -20,8 +20,8 @@ export default function CalendarPage() {
         {hasContent && (
           <div className="mt-1 flex flex-wrap gap-1">
             <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-            {i % 3 === 0 && <span className="h-1.5 w-1.5 rounded-full bg-orange-500" />}
-            {i % 5 === 0 && <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />}
+            {i % 3 === 0 && <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground" />}
+            {i % 5 === 0 && <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50" />}
           </div>
         )}
       </div>
@@ -52,10 +52,10 @@ export default function CalendarPage() {
               <span className="h-2 w-2 rounded-full bg-primary" /> Twitter/X
             </div>
             <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-              <span className="h-2 w-2 rounded-full bg-orange-500" /> Blog
+              <span className="h-2 w-2 rounded-full bg-muted-foreground" /> Blog
             </div>
             <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-              <span className="h-2 w-2 rounded-full bg-amber-500" /> Email
+              <span className="h-2 w-2 rounded-full bg-muted-foreground/50" /> Email
             </div>
           </div>
         </CardContent>
