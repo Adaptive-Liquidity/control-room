@@ -5,7 +5,7 @@ export interface User {
   email: string;
   name: string | null;
   avatar: string | null;
-  role: 'ADMIN' | 'MANAGER' | 'EDITOR' | 'VIEWER';
+  role: 'ADMIN' | 'MANAGER' | 'REVIEWER' | 'EDITOR' | 'VIEWER' | 'SERVICE';
   permissions: string[];
   isActive: boolean;
 }
@@ -154,13 +154,14 @@ export type ContentType =
   | 'LINKEDIN_POST' 
   | 'DISCORD_MESSAGE';
 
-export type ContentStatus = 
-  | 'DRAFT' 
-  | 'PENDING_REVIEW' 
-  | 'APPROVED' 
-  | 'REJECTED' 
-  | 'SCHEDULED' 
-  | 'PUBLISHED' 
+export type ContentStatus =
+  | 'DRAFT'
+  | 'PENDING_REVIEW'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'REVISION_REQUESTED'
+  | 'SCHEDULED'
+  | 'PUBLISHED'
   | 'ARCHIVED';
 
 export type Channel = 'TWITTER' | 'LINKEDIN' | 'DISCORD' | 'EMAIL' | 'BLOG';

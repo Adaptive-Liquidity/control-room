@@ -24,6 +24,7 @@ model User {
   approvals     Approval[]
   campaigns     Campaign[]
   activities    ActivityLog[]
+  revisions     ContentRevision[]
 
   @@map("users")
 }
@@ -37,7 +38,15 @@ model Content {
   channel         Channel
   campaignId      String?
 
-  // Guardian scoring
+  // Origin / n8n bridge metadata
+  origin            ContentOrigin    @default(MANUAL)
+  externalDraftId   String?          @unique
+  n8nWorkflowId     String?
+  n8nExecutionId    String?
+  currentRevisionId String?
+  riskTier          ContentRiskTier  @default(MEDIUM)
+
+  // Guardian scoring (denormalized mirror of current revision)
   guardianScore   Int           @default(0)
   guardianChecks  Json?         // { forbiddenWords: bool, maturityBand: bool, sources: bool, disclaimer: bool, yieldPromise: bool, brandVoice: bool }
   guardianFlags   Json?         // Array of flagged issues
@@ -64,20 +73,53 @@ model Content {
 
   // Relations
   authorId        String
-  author          User          @relation(fields: [authorId], references: [id])
+  author          User              @relation(fields: [authorId], references: [id])
   approvals       Approval[]
-  campaign        Campaign?     @relation(fields: [campaignId], references: [id])
+  campaign        Campaign?         @relation(fields: [campaignId], references: [id])
+  revisions       ContentRevision[]
+  bridgeJobs      N8nBridgeJob[]
+  publishReceipts PublishReceipt[]
 
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
+  @@index([n8nWorkflowId])
+  @@index([n8nExecutionId])
   @@map("contents")
+}
+
+model ContentRevision {
+  id                    String         @id @default(cuid())
+  contentId             String
+  content               Content        @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  version               Int
+  title                 String
+  body                  String         @db.Text
+  channel               Channel
+  type                  ContentType
+  contentHash           String
+  guardianPolicyVersion String
+  guardianScore         Int
+  guardianResult        GuardianResult
+  guardianChecks        Json?
+  guardianFlags         Json?
+  createdById           String
+  createdBy             User           @relation(fields: [createdById], references: [id])
+  createdAt             DateTime       @default(now())
+
+  approvals       Approval[]
+  publishReceipts PublishReceipt[]
+
+  @@unique([contentId, version])
+  @@map("content_revisions")
 }
 
 model Approval {
   id          String          @id @default(cuid())
   contentId   String
   content     Content         @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  revisionId  String
+  revision    ContentRevision @relation(fields: [revisionId], references: [id])
   reviewerId  String
   reviewer    User            @relation(fields: [reviewerId], references: [id])
   status      ApprovalStatus
@@ -146,14 +188,15 @@ model ActivityLog {
 }
 
 model GuardianRule {
-  id          String    @id @default(cuid())
+  id          String       @id @default(cuid())
   type        RuleType
-  pattern     String    // Regex or keyword
+  pattern     String       // Regex or keyword
   severity    RuleSeverity
+  action      RuleAction   @default(REVIEW)
   message     String
-  autoBlock   Boolean   @default(false)
-  isActive    Boolean   @default(true)
-  createdAt   DateTime  @default(now())
+  autoBlock   Boolean      @default(false)
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
 
   @@map("guardian_rules")
 }
@@ -174,12 +217,78 @@ model Integration {
   @@map("integrations")
 }
 
+model N8nBridgeJob {
+  id                 String       @id @default(cuid())
+  eventId            String       @unique
+  externalDraftId    String
+  contentId          String
+  content            Content      @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  workflowId         String
+  executionId        String
+  resumeUrlEncrypted String       @db.Text
+  resumeExpiresAt    DateTime?
+  resumeStatus       ResumeStatus @default(PENDING)
+  attemptCount       Int          @default(0)
+  lastAttemptAt      DateTime?
+  nextAttemptAt      DateTime?
+  lastError          String?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  @@index([externalDraftId])
+  @@index([resumeStatus, nextAttemptAt])
+  @@map("n8n_bridge_jobs")
+}
+
+model OutboxEvent {
+  id            String       @id @default(cuid())
+  type          String
+  aggregateId   String
+  payload       Json
+  status        OutboxStatus @default(PENDING)
+  attempts      Int          @default(0)
+  nextAttemptAt DateTime     @default(now())
+  lastError     String?
+  processedAt   DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([status, nextAttemptAt])
+  @@index([aggregateId])
+  @@map("outbox_events")
+}
+
+model PublishReceipt {
+  id             String        @id @default(cuid())
+  eventId        String        @unique
+  contentId      String
+  content        Content       @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  revisionId     String
+  revision       ContentRevision @relation(fields: [revisionId], references: [id])
+  contentHash    String
+  channel        Channel
+  platformPostId String?
+  platformUrl    String?
+  status         PublishStatus
+  publishedAt    DateTime?
+  errorCode      String?
+  errorMessage   String?
+  n8nExecutionId String?
+  rawMetadata    Json?
+  createdAt      DateTime      @default(now())
+
+  @@index([contentId])
+  @@map("publish_receipts")
+}
+
 // Enums
 enum UserRole {
   ADMIN
   MANAGER
+  REVIEWER
   EDITOR
   VIEWER
+  SERVICE
 }
 
 enum ContentType {
@@ -198,9 +307,28 @@ enum ContentStatus {
   PENDING_REVIEW
   APPROVED
   REJECTED
+  REVISION_REQUESTED
   SCHEDULED
   PUBLISHED
   ARCHIVED
+}
+
+enum ContentOrigin {
+  MANUAL
+  N8N
+}
+
+enum ContentRiskTier {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum GuardianResult {
+  ALLOW
+  REVIEW
+  BLOCK
 }
 
 enum Channel {
@@ -294,6 +422,31 @@ enum RuleSeverity {
   CRITICAL
 }
 
+enum RuleAction {
+  ALLOW
+  REVIEW
+  BLOCK
+}
+
+enum ResumeStatus {
+  PENDING
+  DELIVERED
+  EXPIRED
+  FAILED
+}
+
+enum OutboxStatus {
+  PENDING
+  RETRY
+  PROCESSED
+  FAILED
+}
+
+enum PublishStatus {
+  SUCCESS
+  FAILED
+}
+
 enum IntegrationType {
   TWITTER
   LINKEDIN
@@ -301,6 +454,7 @@ enum IntegrationType {
   MAILCHIMP
   GITHUB
   FIREBASE
+  N8N
 }
 
 enum IntegrationStatus {

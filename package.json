@@ -12,6 +12,7 @@
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
     "db:seed": "tsx scripts/seed.ts",
+    "db:seed-guardian": "tsx scripts/seed-guardian-rules.ts",
     "agents:start": "tsx src/services/agent-runner.ts",
     "test": "jest",
     "test:watch": "jest --watch"

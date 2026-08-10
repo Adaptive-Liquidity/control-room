@@ -1,10 +1,87 @@
 // src/services/content.service.ts
-import type { Prisma } from '@prisma/client';
+import { createHash } from 'crypto';
+import type { Channel, ContentType, Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { guardianService } from '@/lib/guardian/guardian.service';
-import type { Content, ContentType, Channel } from '@/types';
+import type { Content } from '@/types';
+
+export class ConflictError extends Error {
+  statusCode = 409;
+  constructor(message: string) {
+    super(message);
+    this.name = 'ConflictError';
+  }
+}
+
+export class ValidationServiceError extends Error {
+  statusCode = 422;
+  constructor(message: string) {
+    super(message);
+    this.name = 'ValidationServiceError';
+  }
+}
+
+export function hashContent(title: string, body: string): string {
+  return createHash('sha256').update(`${title}\n${body}`).digest('hex');
+}
 
 export class ContentService {
+  async createRevision(
+    contentId: string,
+    data: {
+      title: string;
+      body: string;
+      channel: Channel;
+      type: ContentType;
+    },
+    createdById: string,
+    tx: Prisma.TransactionClient = prisma
+  ) {
+    const last = await tx.contentRevision.findFirst({
+      where: { contentId },
+      orderBy: { version: 'desc' },
+      select: { version: true },
+    });
+    const version = (last?.version ?? 0) + 1;
+    const contentHash = hashContent(data.title, data.body);
+    const guardianResult = await guardianService.checkContent(data.body, data.title);
+
+    const revision = await tx.contentRevision.create({
+      data: {
+        contentId,
+        version,
+        title: data.title,
+        body: data.body,
+        channel: data.channel,
+        type: data.type,
+        contentHash,
+        guardianPolicyVersion: guardianResult.policyVersion,
+        guardianScore: guardianResult.score,
+        guardianResult: guardianResult.result,
+        guardianChecks: guardianResult.checks as unknown as Prisma.InputJsonValue,
+        guardianFlags: guardianResult.flags as unknown as Prisma.InputJsonValue,
+        createdById,
+      },
+    });
+
+    await tx.content.update({
+      where: { id: contentId },
+      data: {
+        title: data.title,
+        body: data.body,
+        channel: data.channel,
+        type: data.type,
+        version,
+        currentRevisionId: revision.id,
+        guardianScore: guardianResult.score,
+        guardianChecks: guardianResult.checks as unknown as Prisma.InputJsonValue,
+        guardianFlags: guardianResult.flags as unknown as Prisma.InputJsonValue,
+      },
+    });
+
+    return { revision, guardianResult };
+  }
+
   async create(data: {
     title: string;
     body: string;
@@ -12,33 +89,65 @@ export class ContentService {
     channel: Channel;
     authorId: string;
     campaignId?: string;
+    origin?: 'MANUAL' | 'N8N';
+    externalDraftId?: string;
+    n8nWorkflowId?: string;
+    n8nExecutionId?: string;
+    status?: Content['status'];
   }) {
-    // Run Guardian check
-    const guardianResult = await guardianService.checkContent(data.body, data.title);
+    const content = await prisma.$transaction(async (tx) => {
+      const created = await tx.content.create({
+        data: {
+          title: data.title,
+          body: data.body,
+          type: data.type,
+          channel: data.channel,
+          authorId: data.authorId,
+          campaignId: data.campaignId,
+          origin: data.origin ?? 'MANUAL',
+          externalDraftId: data.externalDraftId,
+          n8nWorkflowId: data.n8nWorkflowId,
+          n8nExecutionId: data.n8nExecutionId,
+          // Guardian never auto-approves; start in review (or explicit status).
+          status: data.status ?? 'PENDING_REVIEW',
+        },
+      });
 
-    const content = await prisma.content.create({
-      data: {
-        ...data,
-        guardianScore: guardianResult.score,
-        guardianChecks: guardianResult.checks as any,
-        guardianFlags: guardianResult.flags as any,
-        status: guardianResult.score >= 95 ? 'APPROVED' : 'PENDING_REVIEW',
-      },
-      include: {
-        author: true,
-        approvals: { include: { reviewer: true } },
-        campaign: true,
-      },
-    });
+      const { revision, guardianResult } = await this.createRevision(
+        created.id,
+        {
+          title: data.title,
+          body: data.body,
+          channel: data.channel,
+          type: data.type,
+        },
+        data.authorId,
+        tx
+      );
 
-    // Log activity
-    await prisma.activityLog.create({
-      data: {
-        userId: data.authorId,
-        type: 'CONTENT_CREATED',
-        description: `Created ${data.type}: "${data.title}"`,
-        metadata: { contentId: content.id, guardianScore: guardianResult.score },
-      },
+      await tx.activityLog.create({
+        data: {
+          userId: data.authorId,
+          type: 'CONTENT_CREATED',
+          description: `Created ${data.type}: "${data.title}"`,
+          metadata: {
+            contentId: created.id,
+            revisionId: revision.id,
+            guardianScore: guardianResult.score,
+            guardianResult: guardianResult.result,
+          },
+        },
+      });
+
+      return tx.content.findUniqueOrThrow({
+        where: { id: created.id },
+        include: {
+          author: true,
+          approvals: { include: { reviewer: true } },
+          campaign: true,
+          revisions: { orderBy: { version: 'desc' }, take: 1 },
+        },
+      });
     });
 
     return content;
@@ -60,31 +169,34 @@ export class ContentService {
     const content = await prisma.content.findUnique({ where: { id } });
     if (!content) throw new Error('Content not found');
 
+    const contentFieldsChanged =
+      data.title !== undefined ||
+      data.body !== undefined ||
+      data.type !== undefined ||
+      data.channel !== undefined;
+
+    if (contentFieldsChanged) {
+      await this.createRevision(
+        id,
+        {
+          title: data.title ?? content.title,
+          body: data.body ?? content.body,
+          type: data.type ?? content.type,
+          channel: data.channel ?? content.channel,
+        },
+        userId
+      );
+    }
+
     const updateData: Prisma.ContentUpdateInput = {
-      title: data.title,
-      body: data.body,
-      type: data.type,
-      channel: data.channel,
-      status: data.status,
-      scheduledAt: data.scheduledAt,
-      version: { increment: 1 },
+      ...(data.status !== undefined ? { status: data.status } : {}),
+      ...(data.scheduledAt !== undefined ? { scheduledAt: data.scheduledAt } : {}),
       ...(data.campaignId !== undefined
         ? data.campaignId === null
           ? { campaign: { disconnect: true } }
           : { campaign: { connect: { id: data.campaignId } } }
         : {}),
     };
-
-    // Re-run Guardian if body changed
-    if (data.body) {
-      const guardianResult = await guardianService.checkContent(
-        data.body,
-        data.title || content.title
-      );
-      updateData.guardianScore = guardianResult.score;
-      updateData.guardianChecks = guardianResult.checks as unknown as Prisma.InputJsonValue;
-      updateData.guardianFlags = guardianResult.flags as unknown as Prisma.InputJsonValue;
-    }
 
     const updated = await prisma.content.update({
       where: { id },
@@ -115,23 +227,26 @@ export class ContentService {
         author: true,
         approvals: { include: { reviewer: true } },
         campaign: true,
+        revisions: { orderBy: { version: 'desc' }, take: 5 },
       },
     });
   }
 
-  async getAll(options: {
-    status?: string;
-    channel?: string;
-    authorId?: string;
-    campaignId?: string;
-    page?: number;
-    limit?: number;
-  } = {}) {
+  async getAll(
+    options: {
+      status?: string;
+      channel?: string;
+      authorId?: string;
+      campaignId?: string;
+      page?: number;
+      limit?: number;
+    } = {}
+  ) {
     const { status, channel, authorId, campaignId, page = 1, limit = 20 } = options;
 
-    const where: any = {};
-    if (status) where.status = status;
-    if (channel) where.channel = channel;
+    const where: Prisma.ContentWhereInput = {};
+    if (status) where.status = status as Content['status'];
+    if (channel) where.channel = channel as Channel;
     if (authorId) where.authorId = authorId;
     if (campaignId) where.campaignId = campaignId;
 
@@ -153,60 +268,18 @@ export class ContentService {
     return { items, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
-  async approve(id: string, reviewerId: string, comment?: string) {
-    const content = await prisma.content.update({
-      where: { id },
-      data: { status: 'APPROVED' },
-      include: { author: true },
-    });
-
-    await prisma.approval.create({
-      data: {
-        contentId: id,
-        reviewerId,
-        status: 'APPROVED',
-        comment,
-      },
-    });
-
-    await prisma.activityLog.create({
-      data: {
-        userId: reviewerId,
-        type: 'CONTENT_APPROVED',
-        description: `Approved: "${content.title}"`,
-        metadata: { contentId: id },
-      },
-    });
-
-    return content;
+  /** @deprecated Use approvalService.decide — kept only for non-revision transitional callers. */
+  async approve(_id: string, _reviewerId: string, _comment?: string) {
+    throw new Error(
+      'contentService.approve is disabled. Use approvalService.decide with revisionId.'
+    );
   }
 
-  async reject(id: string, reviewerId: string, comment: string) {
-    const content = await prisma.content.update({
-      where: { id },
-      data: { status: 'REJECTED' },
-      include: { author: true },
-    });
-
-    await prisma.approval.create({
-      data: {
-        contentId: id,
-        reviewerId,
-        status: 'REJECTED',
-        comment,
-      },
-    });
-
-    await prisma.activityLog.create({
-      data: {
-        userId: reviewerId,
-        type: 'CONTENT_REJECTED',
-        description: `Rejected: "${content.title}" — ${comment}`,
-        metadata: { contentId: id },
-      },
-    });
-
-    return content;
+  /** @deprecated Use approvalService.decide */
+  async reject(_id: string, _reviewerId: string, _comment: string) {
+    throw new Error(
+      'contentService.reject is disabled. Use approvalService.decide with revisionId.'
+    );
   }
 
   async schedule(id: string, scheduledAt: Date) {
@@ -216,23 +289,14 @@ export class ContentService {
     });
   }
 
-  async publish(id: string) {
-    const content = await prisma.content.update({
-      where: { id },
-      data: { status: 'PUBLISHED', publishedAt: new Date() },
-      include: { author: true },
-    });
-
-    await prisma.activityLog.create({
-      data: {
-        userId: content.authorId,
-        type: 'CONTENT_PUBLISHED',
-        description: `Published: "${content.title}" on ${content.channel}`,
-        metadata: { contentId: id, channel: content.channel },
-      },
-    });
-
-    return content;
+  /**
+   * Direct publish is disabled — only the n8n publish-receipt route may
+   * transition Content.status to PUBLISHED.
+   */
+  async publish(_id: string) {
+    throw new Error(
+      'Direct publish is disabled. Content becomes PUBLISHED only via /api/integrations/n8n/publish-receipt.'
+    );
   }
 
   async getDashboardStats() {
@@ -267,7 +331,7 @@ export class ContentService {
       scheduledPosts: scheduledCount,
       publishedThisEpoch: publishedThisWeek,
       activeAgents,
-      guardianPassRate: Math.round((guardianStats._avg.guardianScore || 0)),
+      guardianPassRate: Math.round(guardianStats._avg.guardianScore || 0),
       contentToDevAttribution: attributionStats._sum.signups || 0,
     };
   }

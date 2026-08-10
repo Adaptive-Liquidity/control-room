@@ -5,19 +5,10 @@ import { authOptions } from '@/lib/auth';
 import { ForbiddenError } from '@/lib/rbac';
 import { approvalService } from '@/services/approval.service';
 import { ConflictError, ValidationServiceError } from '@/services/content.service';
-import { channelSchema, contentTypeSchema } from '@/lib/n8n/contracts';
 
 const bodySchema = z.object({
   revisionId: z.string().min(1),
-  comment: z.string().optional(),
-  edits: z
-    .object({
-      title: z.string().min(1).max(200).optional(),
-      body: z.string().min(1).max(50000).optional(),
-      channel: channelSchema.optional(),
-      type: contentTypeSchema.optional(),
-    })
-    .optional(),
+  comment: z.string().min(1),
 });
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
@@ -30,9 +21,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       session,
       contentId: params.id,
       expectedRevisionId: body.revisionId,
-      decision: 'APPROVED',
+      decision: 'REVISION_REQUESTED',
       comment: body.comment,
-      edits: body.edits,
     });
     return NextResponse.json(content);
   } catch (error) {
@@ -51,7 +41,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         { status: 400 }
       );
     }
-    console.error('Approve error:', error);
+    console.error('Request-revision error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
