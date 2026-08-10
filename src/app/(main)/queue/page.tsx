@@ -1,7 +1,23 @@
 "use client";
+
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+
+const CHANNEL_LABELS: Record<string, string> = {
+  TWITTER: "X",
+  BLOG: "Blog",
+  EMAIL: "Email",
+  LINKEDIN: "LI",
+};
+
+function statusVariant(status: string): "warning" | "success" | "destructive" | "secondary" {
+  if (status === "PENDING_REVIEW") return "warning";
+  if (status === "APPROVED") return "success";
+  if (status === "REJECTED") return "destructive";
+  return "secondary";
+}
 
 export default function QueuePage() {
   const [filter, setFilter] = useState("all");
@@ -21,36 +37,44 @@ export default function QueuePage() {
 
   return (
     <div className="space-y-5 animate-fade-in">
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         {filters.map((f) => (
-          <button key={f} onClick={() => setFilter(f)} className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${filter === f ? "bg-aeon-teal/15 text-aeon-teal border border-aeon-teal/30" : "bg-aeon-navy-3 text-muted-foreground border border-aeon-navy-3 hover:border-aeon-navy-4"}`}>
+          <Button
+            key={f}
+            size="sm"
+            variant={filter === f ? "default" : "outline"}
+            onClick={() => setFilter(f)}
+          >
             {f.charAt(0).toUpperCase() + f.slice(1)}
-          </button>
+          </Button>
         ))}
       </div>
+
       <div className="space-y-3">
         {items.map((item) => (
-          <div key={item.id} className="flex items-center gap-4 p-4 rounded-xl border border-aeon-navy-3 bg-gradient-to-r from-aeon-navy-2 to-aeon-navy-1 hover:border-aeon-navy-4 transition-all">
-            <div className="w-11 h-11 rounded-lg bg-aeon-teal/10 flex items-center justify-center text-xl">
-              {item.channel === "TWITTER" ? "🐦" : item.channel === "BLOG" ? "📝" : item.channel === "EMAIL" ? "📧" : "📄"}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="font-semibold truncate">{item.title}</div>
-              <div className="text-xs text-muted-foreground">By {item.author} • {item.channel} • Guardian: {item.guardianScore}/100</div>
-            </div>
-            <Badge className={`text-[10px] ${item.status === "PENDING_REVIEW" ? "bg-amber-500/10 text-amber-500 border-amber-500/20" : item.status === "APPROVED" ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" : item.status === "REJECTED" ? "bg-red-500/10 text-red-500 border-red-500/20" : "bg-gray-500/10 text-gray-400 border-gray-500/20"}`}>
-              {item.status}
-            </Badge>
-            <div className="flex gap-2">
-              {item.status === "PENDING_REVIEW" && (
-                <>
-                  <Button size="sm" className="bg-emerald-500/15 text-emerald-500 border border-emerald-500/30 hover:bg-emerald-500/25">✓ Approve</Button>
-                  <Button size="sm" className="bg-red-500/15 text-red-500 border border-red-500/30 hover:bg-red-500/25">✕ Reject</Button>
-                </>
-              )}
-              <Button size="sm" variant="outline" className="border-aeon-navy-4">✎ Edit</Button>
-            </div>
-          </div>
+          <Card key={item.id} className="transition-colors hover:bg-secondary/30">
+            <CardContent className="flex items-center gap-4 p-4">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-secondary text-xs font-semibold">
+                {CHANNEL_LABELS[item.channel] || item.channel.slice(0, 2)}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium">{item.title}</div>
+                <div className="text-xs text-muted-foreground">
+                  By {item.author} · {item.channel} · Guardian: {item.guardianScore}/100
+                </div>
+              </div>
+              <Badge variant={statusVariant(item.status)}>{item.status.replace("_", " ")}</Badge>
+              <div className="flex gap-2">
+                {item.status === "PENDING_REVIEW" && (
+                  <>
+                    <Button size="sm" variant="outline">Approve</Button>
+                    <Button size="sm" variant="destructive">Reject</Button>
+                  </>
+                )}
+                <Button size="sm" variant="outline">Edit</Button>
+              </div>
+            </CardContent>
+          </Card>
         ))}
       </div>
     </div>

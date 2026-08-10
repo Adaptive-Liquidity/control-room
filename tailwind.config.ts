@@ -10,16 +10,17 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        // Remapped to light institutional palette (legacy class names kept for pages)
         aeon: {
-          navy: "#050d1a",
-          "navy-1": "#0a1628",
-          "navy-2": "#111d32",
-          "navy-3": "#1a2744",
-          "navy-4": "#243555",
-          "navy-5": "#2f4266",
-          teal: "#2dd4bf",
-          "teal-dim": "rgba(45,212,191,0.1)",
-          "teal-glow": "rgba(45,212,191,0.3)",
+          navy: "#F7F8FA",
+          "navy-1": "#FFFFFF",
+          "navy-2": "#F1F3F5",
+          "navy-3": "#E5E7EB",
+          "navy-4": "#D1D5DB",
+          "navy-5": "#9CA3AF",
+          teal: "#1E3A5F",
+          "teal-dim": "rgba(30, 58, 95, 0.08)",
+          "teal-glow": "rgba(30, 58, 95, 0.12)",
         },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -56,13 +57,16 @@ const config: Config = {
         },
       },
       fontFamily: {
-        sans: ["Inter", "system-ui", "sans-serif"],
-        mono: ["JetBrains Mono", "monospace"],
+        sans: ["var(--font-sans)", "system-ui", "sans-serif"],
+        mono: ["var(--font-mono)", "ui-monospace", "monospace"],
       },
       borderRadius: {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+      },
+      boxShadow: {
+        soft: "0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.06)",
       },
       keyframes: {
         "accordion-down": {
@@ -73,20 +77,10 @@ const config: Config = {
           from: { height: "var(--radix-accordion-content-height)" },
           to: { height: "0" },
         },
-        pulse: {
-          "0%, 100%": { opacity: "1" },
-          "50%": { opacity: "0.4" },
-        },
-        slideIn: {
-          from: { transform: "translateX(100px)", opacity: "0" },
-          to: { transform: "translateX(0)", opacity: "1" },
-        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
-        pulse: "pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite",
-        slideIn: "slideIn 0.35s ease",
       },
     },
   },

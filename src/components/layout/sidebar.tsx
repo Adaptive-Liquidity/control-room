@@ -1,35 +1,53 @@
 "use client";
 
-import { usePathname } from "next/navigation";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
+import {
+  Beaker,
+  Bot,
+  CalendarDays,
+  FolderOpen,
+  GitBranch,
+  Inbox,
+  LayoutDashboard,
+  LineChart,
+  PenLine,
+  Settings,
+  Target,
+  Users,
+  type LucideIcon,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const navSections = [
+const navSections: {
+  title: string;
+  items: { icon: LucideIcon; label: string; href: string }[];
+}[] = [
   {
     title: "Command",
     items: [
-      { icon: "📊", label: "Dashboard", href: "/dashboard" },
-      { icon: "🤖", label: "Agent Squad", href: "/agents", badge: "4" },
-      { icon: "📥", label: "Approval Queue", href: "/queue", badge: "5" },
-      { icon: "✏️", label: "Content Studio", href: "/studio" },
-      { icon: "📅", label: "Content Calendar", href: "/calendar" },
+      { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
+      { icon: Bot, label: "Agents", href: "/agents" },
+      { icon: Inbox, label: "Queue", href: "/queue" },
+      { icon: PenLine, label: "Studio", href: "/studio" },
+      { icon: CalendarDays, label: "Calendar", href: "/calendar" },
     ],
   },
   {
     title: "Intelligence",
     items: [
-      { icon: "🔗", label: "Attribution", href: "/attribution" },
-      { icon: "📈", label: "Analytics", href: "/analytics" },
-      { icon: "🧪", label: "A/B Lab", href: "/ablab" },
+      { icon: GitBranch, label: "Attribution", href: "/attribution" },
+      { icon: LineChart, label: "Analytics", href: "/analytics" },
+      { icon: Beaker, label: "A/B Lab", href: "/ablab" },
     ],
   },
   {
     title: "Operations",
     items: [
-      { icon: "📚", label: "Content Library", href: "/library" },
-      { icon: "🎯", label: "Campaigns", href: "/campaigns" },
-      { icon: "👥", label: "Team", href: "/team" },
-      { icon: "⚙️", label: "Settings", href: "/settings" },
+      { icon: FolderOpen, label: "Library", href: "/library" },
+      { icon: Target, label: "Campaigns", href: "/campaigns" },
+      { icon: Users, label: "Team", href: "/team" },
+      { icon: Settings, label: "Settings", href: "/settings" },
     ],
   },
 ];
@@ -38,52 +56,51 @@ export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="fixed left-0 top-0 h-screen w-[270px] bg-gradient-to-b from-aeon-navy-1 to-aeon-navy border-r border-aeon-navy-3 z-50 overflow-y-auto">
-      <div className="p-5 border-b border-aeon-navy-3">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-gradient-to-br from-aeon-teal to-emerald-500 rounded-xl flex items-center justify-center text-aeon-navy-1 font-black text-xl shadow-lg shadow-aeon-teal/20">
-            A
-          </div>
-          <div>
-            <div className="font-bold text-lg leading-tight">AEON</div>
-            <div className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider">Marketing Command v2.0</div>
-          </div>
+    <aside className="fixed left-0 top-0 z-50 flex h-screen w-[240px] flex-col border-r border-border bg-card">
+      <div className="flex h-14 items-center gap-2.5 border-b border-border px-4">
+        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-[11px] font-semibold text-primary-foreground">
+          A
         </div>
-        <div className="mt-3 inline-flex items-center gap-2 text-[10px] text-emerald-400 bg-emerald-400/10 px-3 py-1 rounded-full">
-          <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
-          All Systems Operational
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold tracking-tight">AEON</div>
+          <div className="truncate text-[11px] text-muted-foreground">Control Room</div>
         </div>
       </div>
 
-      <nav className="py-4">
+      <nav className="flex-1 overflow-y-auto px-2 py-3">
         {navSections.map((section) => (
-          <div key={section.title} className="mb-2">
-            <div className="px-5 pb-2 pt-3 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+          <div key={section.title} className="mb-4">
+            <div className="px-2 pb-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
               {section.title}
             </div>
-            {section.items.map((item) => {
-              const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={cn(
-                    "flex items-center gap-3 px-4 py-2 mx-3 rounded-lg text-sm transition-all duration-200 relative",
-                    isActive
-                      ? "bg-gradient-to-r from-aeon-teal/15 to-transparent text-aeon-teal border-l-2 border-aeon-teal"
-                      : "text-muted-foreground hover:text-foreground hover:bg-aeon-teal/5"
-                  )}
-                >
-                  <span className="text-base">{item.icon}</span>
-                  <span className="font-medium">{item.label}</span>
-                  {item.badge && (
-                    <span className="absolute right-3 bg-orange-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-                      {item.badge}
-                    </span>
-                  )}
-                </Link>
-              );
-            })}
+            <div className="space-y-0.5">
+              {section.items.map((item) => {
+                const isActive =
+                  pathname === item.href || pathname.startsWith(item.href + "/");
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={`${section.title}-${item.href}-${item.label}`}
+                    href={item.href}
+                    className={cn(
+                      "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] transition-colors",
+                      isActive
+                        ? "bg-secondary font-medium text-foreground"
+                        : "text-muted-foreground hover:bg-secondary/70 hover:text-foreground"
+                    )}
+                  >
+                    <Icon
+                      className={cn(
+                        "h-4 w-4 shrink-0",
+                        isActive ? "text-primary" : "text-muted-foreground"
+                      )}
+                      strokeWidth={1.75}
+                    />
+                    <span>{item.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
           </div>
         ))}
       </nav>

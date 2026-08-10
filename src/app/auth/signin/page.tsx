@@ -45,35 +45,29 @@ function SignInForm() {
   }
 
   return (
-    <div className="rounded-2xl border border-aeon-navy-3 bg-gradient-to-br from-aeon-navy-2 to-aeon-navy-1 p-8 shadow-xl">
-      <div className="mb-8 text-center">
-        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-aeon-teal to-emerald-500 text-xl font-black text-aeon-navy-1">
+    <div className="rounded-lg border border-border bg-card p-6 shadow-soft">
+      <div className="mb-6">
+        <div className="mb-3 flex h-8 w-8 items-center justify-center rounded-md bg-primary text-xs font-semibold text-primary-foreground">
           A
         </div>
-        <h1 className="text-2xl font-bold">Sign in</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          AEON Marketing Command Center
-        </p>
+        <h1 className="text-lg font-semibold tracking-tight">Sign in</h1>
+        <p className="mt-1 text-sm text-muted-foreground">AEON Control Room</p>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-3.5">
         {registered && (
-          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-400">
+          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
             Account created. Sign in to continue.
           </div>
         )}
-
         {error && (
-          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">
+          <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
             {error}
           </div>
         )}
 
         <div>
-          <label
-            htmlFor="email"
-            className="mb-2 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground"
-          >
+          <label htmlFor="email" className="mb-1.5 block text-xs font-medium text-muted-foreground">
             Email
           </label>
           <input
@@ -83,16 +77,12 @@ function SignInForm() {
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-full rounded-lg border border-aeon-navy-3 bg-aeon-navy-1 px-4 py-3 text-sm outline-none transition-colors focus:border-aeon-teal"
-            placeholder="you@aeonprotocol.xyz"
+            className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm outline-none ring-offset-background focus:ring-2 focus:ring-ring"
           />
         </div>
 
         <div>
-          <label
-            htmlFor="password"
-            className="mb-2 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground"
-          >
+          <label htmlFor="password" className="mb-1.5 block text-xs font-medium text-muted-foreground">
             Password
           </label>
           <input
@@ -102,23 +92,18 @@ function SignInForm() {
             required
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded-lg border border-aeon-navy-3 bg-aeon-navy-1 px-4 py-3 text-sm outline-none transition-colors focus:border-aeon-teal"
-            placeholder="••••••••"
+            className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm outline-none ring-offset-background focus:ring-2 focus:ring-ring"
           />
         </div>
 
-        <Button
-          type="submit"
-          disabled={loading}
-          className="w-full bg-gradient-to-r from-aeon-teal to-emerald-500 font-bold text-aeon-navy-1 hover:opacity-90"
-        >
+        <Button type="submit" disabled={loading} className="w-full">
           {loading ? "Signing in…" : "Sign in"}
         </Button>
       </form>
 
-      <p className="mt-6 text-center text-sm text-muted-foreground">
+      <p className="mt-5 text-center text-sm text-muted-foreground">
         No account?{" "}
-        <Link href="/auth/signup" className="font-semibold text-aeon-teal hover:underline">
+        <Link href="/auth/signup" className="font-medium text-primary hover:underline">
           Create one
         </Link>
       </p>
@@ -128,13 +113,7 @@ function SignInForm() {
 
 export default function SignInPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="rounded-2xl border border-aeon-navy-3 bg-aeon-navy-2 p-8 text-center text-sm text-muted-foreground">
-          Loading…
-        </div>
-      }
-    >
+    <Suspense fallback={<div className="text-sm text-muted-foreground">Loading…</div>}>
       <SignInForm />
     </Suspense>
   );

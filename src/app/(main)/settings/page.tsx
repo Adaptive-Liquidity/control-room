@@ -1,5 +1,8 @@
 "use client";
+
 import { useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 
 const tabs = [
   { id: "general", label: "General" },
@@ -10,75 +13,141 @@ const tabs = [
   { id: "approval", label: "Approval Chain" },
 ];
 
+const inputClass =
+  "h-9 w-full rounded-md border border-input bg-card px-3 text-sm outline-none ring-offset-background focus:ring-2 focus:ring-ring";
+
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState("general");
 
   return (
     <div className="animate-fade-in">
-      <div className="flex gap-1 border-b border-aeon-navy-3 mb-6">
+      <div className="mb-6 flex gap-1 border-b border-border">
         {tabs.map((tab) => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-5 py-3 text-sm font-bold transition-all border-b-2 ${activeTab === tab.id ? "text-aeon-teal border-aeon-teal" : "text-muted-foreground border-transparent hover:text-foreground"}`}>
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`border-b-2 px-5 py-3 text-sm font-medium transition-colors ${
+              activeTab === tab.id
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
             {tab.label}
           </button>
         ))}
       </div>
-      <div className="p-6 rounded-xl border border-aeon-navy-3 bg-gradient-to-br from-aeon-navy-2 to-aeon-navy-1">
-        {activeTab === "general" && (
-          <div className="space-y-4 max-w-lg">
-            <div><label className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold block mb-2">Organization Name</label><input type="text" defaultValue="Adaptive Liquidity Labs" className="w-full px-4 py-3 rounded-lg bg-aeon-navy-1 border border-aeon-navy-3 text-sm outline-none focus:border-aeon-teal transition-colors" /></div>
-            <div><label className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold block mb-2">Epoch Duration</label><select className="w-full px-4 py-3 rounded-lg bg-aeon-navy-1 border border-aeon-navy-3 text-sm outline-none focus:border-aeon-teal"><option>24 hours (aligned with AEON Protocol)</option><option>12 hours</option><option>48 hours</option></select></div>
-          </div>
-        )}
-        {activeTab === "brand" && (
-          <div className="space-y-4 max-w-lg">
-            <div><label className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold block mb-2">Forbidden Words</label><textarea defaultValue={`guaranteed yield\nstablecoin\nget rich\npassive income\nto the moon\n100% safe\nbuy AEON\nsoon\ncoming soon`} className="w-full px-4 py-3 rounded-lg bg-aeon-navy-1 border border-aeon-navy-3 text-sm outline-none focus:border-aeon-teal min-h-[200px] resize-y" /></div>
-          </div>
-        )}
-        {activeTab === "guardian" && (
-          <div className="space-y-4 max-w-lg">
-            <div className="grid grid-cols-2 gap-4">
-              <div><label className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold block mb-2">Sensitivity</label><select className="w-full px-4 py-3 rounded-lg bg-aeon-navy-1 border border-aeon-navy-3 text-sm outline-none focus:border-aeon-teal"><option>Strict</option><option selected>Standard</option><option>Relaxed</option></select></div>
-              <div><label className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold block mb-2">Auto-Block Threshold</label><input type="number" defaultValue={60} className="w-full px-4 py-3 rounded-lg bg-aeon-navy-1 border border-aeon-navy-3 text-sm outline-none focus:border-aeon-teal" /></div>
+
+      <Card>
+        <CardContent className="p-6">
+          {activeTab === "general" && (
+            <div className="max-w-lg space-y-4">
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Organization Name</label>
+                <input type="text" defaultValue="Adaptive Liquidity Labs" className={inputClass} />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Epoch Duration</label>
+                <select className={inputClass}>
+                  <option>24 hours (aligned with AEON Protocol)</option>
+                  <option>12 hours</option>
+                  <option>48 hours</option>
+                </select>
+              </div>
             </div>
-          </div>
-        )}
-        {activeTab === "agents" && (
-          <div className="space-y-4 max-w-lg">
-            <div><label className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold block mb-2">Creator Agent — Model</label><select className="w-full px-4 py-3 rounded-lg bg-aeon-navy-1 border border-aeon-navy-3 text-sm outline-none focus:border-aeon-teal"><option selected>Claude 4 Sonnet (creative)</option><option>GPT-5</option><option>Gemini 2.5 Pro</option></select></div>
-          </div>
-        )}
-        {activeTab === "mcp" && (
-          <div className="grid grid-cols-2 gap-3 max-w-2xl">
-            {[
-              { name: "Twitter/X MCP", endpoint: "mcp://twitter.aeonprotocol.xyz", status: "connected" },
-              { name: "LinkedIn MCP", endpoint: "mcp://linkedin.aeonprotocol.xyz", status: "connected" },
-              { name: "Discord MCP", endpoint: "mcp://discord.aeonprotocol.xyz", status: "connected" },
-              { name: "Mailchimp MCP", endpoint: "mcp://mailchimp.aeonprotocol.xyz", status: "connected" },
-              { name: "AEON Telemetry MCP", endpoint: "mcp://telemetry.aeonprotocol.xyz", status: "connected" },
-              { name: "GitHub MCP", endpoint: "mcp://github.aeonprotocol.xyz", status: "disconnected" },
-            ].map((mcp) => (
-              <div key={mcp.name} className={`flex items-center gap-3 p-4 rounded-lg border ${mcp.status === 'connected' ? 'border-emerald-500/20' : 'border-red-500/20 opacity-60'}`}>
-                <span className={`text-lg ${mcp.status === 'connected' ? 'text-emerald-400' : 'text-red-400'}`}>●</span>
-                <div><div className="text-sm font-bold">{mcp.name}</div><div className="text-[10px] text-muted-foreground font-mono">{mcp.endpoint}</div></div>
+          )}
+
+          {activeTab === "brand" && (
+            <div className="max-w-lg space-y-4">
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Forbidden Words</label>
+                <textarea
+                  defaultValue={`guaranteed yield\nstablecoin\nget rich\npassive income\nto the moon\n100% safe\nbuy AEON\nsoon\ncoming soon`}
+                  className="min-h-[200px] w-full resize-y rounded-md border border-input bg-card px-3 py-2 text-sm outline-none ring-offset-background focus:ring-2 focus:ring-ring"
+                />
               </div>
-            ))}
-          </div>
-        )}
-        {activeTab === "approval" && (
-          <div className="max-w-lg space-y-3">
-            {[
-              { step: 1, title: "Guardian Agent — Auto-Check", desc: "Forbidden words, maturity bands, regulatory compliance", color: "bg-aeon-teal" },
-              { step: 2, title: "Content Lead Review — Sarah Kim", desc: "Quality, tone, accuracy, brand voice", color: "bg-amber-500" },
-              { step: 3, title: "Head of Marketing Approval — Alex Chen", desc: "Final sign-off, strategic alignment", color: "bg-emerald-500" },
-            ].map((step) => (
-              <div key={step.step} className="flex items-center gap-4 p-4 rounded-lg bg-aeon-navy-1">
-                <div className={`w-9 h-9 rounded-full ${step.color} flex items-center justify-center text-aeon-navy-1 font-black text-sm`}>{step.step}</div>
-                <div><div className="text-sm font-bold">{step.title}</div><div className="text-[11px] text-muted-foreground">{step.desc}</div></div>
+            </div>
+          )}
+
+          {activeTab === "guardian" && (
+            <div className="max-w-lg space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Sensitivity</label>
+                  <select className={inputClass} defaultValue="standard">
+                    <option value="strict">Strict</option>
+                    <option value="standard">Standard</option>
+                    <option value="relaxed">Relaxed</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Auto-Block Threshold</label>
+                  <input type="number" defaultValue={60} className={inputClass} />
+                </div>
               </div>
-            ))}
-          </div>
-        )}
-      </div>
+            </div>
+          )}
+
+          {activeTab === "agents" && (
+            <div className="max-w-lg space-y-4">
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Creator Agent — Model</label>
+                <select className={inputClass} defaultValue="claude">
+                  <option value="claude">Claude 4 Sonnet (creative)</option>
+                  <option value="gpt">GPT-5</option>
+                  <option value="gemini">Gemini 2.5 Pro</option>
+                </select>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "mcp" && (
+            <div className="grid max-w-2xl grid-cols-2 gap-3">
+              {[
+                { name: "Twitter/X MCP", endpoint: "mcp://twitter.aeonprotocol.xyz", status: "connected" as const },
+                { name: "LinkedIn MCP", endpoint: "mcp://linkedin.aeonprotocol.xyz", status: "connected" as const },
+                { name: "Discord MCP", endpoint: "mcp://discord.aeonprotocol.xyz", status: "connected" as const },
+                { name: "Mailchimp MCP", endpoint: "mcp://mailchimp.aeonprotocol.xyz", status: "connected" as const },
+                { name: "AEON Telemetry MCP", endpoint: "mcp://telemetry.aeonprotocol.xyz", status: "connected" as const },
+                { name: "GitHub MCP", endpoint: "mcp://github.aeonprotocol.xyz", status: "disconnected" as const },
+              ].map((mcp) => (
+                <div
+                  key={mcp.name}
+                  className={`flex items-center gap-3 rounded-md border p-4 ${
+                    mcp.status === "connected" ? "border-border" : "border-border opacity-60"
+                  }`}
+                >
+                  <span className={`h-1.5 w-1.5 rounded-full ${mcp.status === "connected" ? "bg-emerald-600" : "bg-red-500"}`} />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium">{mcp.name}</div>
+                    <div className="truncate font-mono text-[10px] text-muted-foreground">{mcp.endpoint}</div>
+                  </div>
+                  <Badge variant={mcp.status === "connected" ? "success" : "destructive"}>{mcp.status}</Badge>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {activeTab === "approval" && (
+            <div className="max-w-lg space-y-3">
+              {[
+                { step: 1, title: "Guardian Agent — Auto-Check", desc: "Forbidden words, maturity bands, regulatory compliance" },
+                { step: 2, title: "Content Lead Review — Sarah Kim", desc: "Quality, tone, accuracy, brand voice" },
+                { step: 3, title: "Head of Marketing Approval — Alex Chen", desc: "Final sign-off, strategic alignment" },
+              ].map((step) => (
+                <div key={step.step} className="flex items-center gap-4 rounded-md border border-border bg-secondary/50 p-4">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
+                    {step.step}
+                  </div>
+                  <div>
+                    <div className="text-sm font-medium">{step.title}</div>
+                    <div className="text-[11px] text-muted-foreground">{step.desc}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
