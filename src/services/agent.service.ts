@@ -1,6 +1,6 @@
 // src/services/agent.service.ts
+import type { AgentStatus, AgentType, Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
-import type { Agent, AgentType, AgentStatus } from '@/types';
 
 export class AgentService {
   async getAll() {
@@ -20,7 +20,7 @@ export class AgentService {
   async create(data: {
     name: string;
     type: AgentType;
-    config: Record<string, unknown>;
+    config: Prisma.InputJsonValue;
     mcpEndpoint?: string;
   }) {
     return prisma.agent.create({ data });
@@ -36,7 +36,7 @@ export class AgentService {
   async updateMetrics(id: string, metrics: { tasksCompleted: number; successRate: number; avgLatency: number }) {
     return prisma.agent.update({
       where: { id },
-      data: { metrics: metrics as any },
+      data: { metrics },
     });
   }
 

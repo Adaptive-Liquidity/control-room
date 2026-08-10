@@ -1,11 +1,12 @@
 // src/services/campaign.service.ts
+import type { AudienceTier, CampaignStatus, CampaignTheme } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 
 export class CampaignService {
-  async getAll(options: { status?: string; page?: number; limit?: number } = {}) {
+  async getAll(options: { status?: CampaignStatus | string; page?: number; limit?: number } = {}) {
     const { status, page = 1, limit = 20 } = options;
-    const where: any = {};
-    if (status) where.status = status;
+    const where: { status?: CampaignStatus } = {};
+    if (status) where.status = status as CampaignStatus;
 
     const [items, total] = await Promise.all([
       prisma.campaign.findMany({
@@ -26,8 +27,8 @@ export class CampaignService {
 
   async create(data: {
     name: string;
-    theme: string;
-    audience: string;
+    theme: CampaignTheme;
+    audience: AudienceTier;
     startDate: Date;
     endDate?: Date;
     budget?: number;

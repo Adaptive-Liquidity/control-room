@@ -1,4 +1,5 @@
 // src/services/content.service.ts
+import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { guardianService } from '@/lib/guardian/guardian.service';
 import type { Content, ContentType, Channel } from '@/types';
@@ -43,22 +44,51 @@ export class ContentService {
     return content;
   }
 
-  async update(id: string, data: Partial<Content>, userId: string) {
+  async update(
+    id: string,
+    data: {
+      title?: string;
+      body?: string;
+      type?: ContentType;
+      channel?: Channel;
+      campaignId?: string | null;
+      status?: Content['status'];
+      scheduledAt?: Date | null;
+    },
+    userId: string
+  ) {
     const content = await prisma.content.findUnique({ where: { id } });
     if (!content) throw new Error('Content not found');
 
+    const updateData: Prisma.ContentUpdateInput = {
+      title: data.title,
+      body: data.body,
+      type: data.type,
+      channel: data.channel,
+      status: data.status,
+      scheduledAt: data.scheduledAt,
+      version: { increment: 1 },
+      ...(data.campaignId !== undefined
+        ? data.campaignId === null
+          ? { campaign: { disconnect: true } }
+          : { campaign: { connect: { id: data.campaignId } } }
+        : {}),
+    };
+
     // Re-run Guardian if body changed
-    let guardianResult;
     if (data.body) {
-      guardianResult = await guardianService.checkContent(data.body, data.title || content.title);
-      data.guardianScore = guardianResult.score;
-      data.guardianChecks = guardianResult.checks as any;
-      data.guardianFlags = guardianResult.flags as any;
+      const guardianResult = await guardianService.checkContent(
+        data.body,
+        data.title || content.title
+      );
+      updateData.guardianScore = guardianResult.score;
+      updateData.guardianChecks = guardianResult.checks as unknown as Prisma.InputJsonValue;
+      updateData.guardianFlags = guardianResult.flags as unknown as Prisma.InputJsonValue;
     }
 
     const updated = await prisma.content.update({
       where: { id },
-      data: { ...data, version: { increment: 1 } },
+      data: updateData,
       include: {
         author: true,
         approvals: { include: { reviewer: true } },

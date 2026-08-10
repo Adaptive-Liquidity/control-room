@@ -1,4 +1,5 @@
 // src/lib/guardian/guardian.service.ts
+import type { RuleSeverity, RuleType } from '@prisma/client';
 import { prisma } from '../prisma';
 import type { GuardianChecks, GuardianFlag } from '@/types';
 
@@ -130,7 +131,13 @@ export class GuardianService {
     });
   }
 
-  async addRule(data: { type: string; pattern: string; severity: string; message: string; autoBlock: boolean }) {
+  async addRule(data: {
+    type: RuleType;
+    pattern: string;
+    severity: RuleSeverity;
+    message: string;
+    autoBlock: boolean;
+  }) {
     return prisma.guardianRule.create({ data });
   }
 
