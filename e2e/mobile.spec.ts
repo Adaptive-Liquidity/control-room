@@ -190,3 +190,25 @@ test.describe('phone studio (requires seeded users)', () => {
     ).toBeVisible();
   });
 });
+
+test.describe('calendar tiers (requires seeded users)', () => {
+  test.skip(!process.env.E2E_WITH_AUTH, 'Set E2E_WITH_AUTH=1 and seed users to run');
+
+  test('phone: agenda replaces the month grid', async ({ page }) => {
+    test.skip(isTablet(), 'phone-only assertions');
+    await signIn(page);
+    await page.goto('/calendar');
+
+    await expect(page.getByTestId('calendar-agenda')).toBeVisible();
+    await expect(page.getByTestId('calendar-grid')).toBeHidden();
+  });
+
+  test('tablet: month grid is used', async ({ page }) => {
+    test.skip(!isTablet(), 'tablet-only assertions');
+    await signIn(page);
+    await page.goto('/calendar');
+
+    await expect(page.getByTestId('calendar-grid')).toBeVisible();
+    await expect(page.getByTestId('calendar-agenda')).toBeHidden();
+  });
+});
