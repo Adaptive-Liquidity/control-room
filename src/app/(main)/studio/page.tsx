@@ -203,7 +203,7 @@ export default function StudioPage() {
                   </div>
                 ))}
                 <div className="border-t border-border pt-3">
-                  <div className="mb-1 text-[11px] text-muted-foreground">Overall Score</div>
+                  <div className="mb-1 text-xs text-muted-foreground sm:text-[11px]">Overall Score</div>
                   <div className="flex items-center gap-3">
                     <span className="text-2xl font-semibold tabular-nums">{guardianResult.score}</span>
                     <Progress value={guardianResult.score} className="flex-1" />
@@ -218,7 +218,7 @@ export default function StudioPage() {
 
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+            <CardTitle className="text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground sm:text-[11px]">
               Live Preview
             </CardTitle>
           </CardHeader>

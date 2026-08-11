@@ -43,7 +43,7 @@ export function ResponsiveTable<TRow>({
       <div className="hidden overflow-x-auto md:block">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-border text-left text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+            <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground sm:text-[11px]">
               {columns.map((col, i) => (
                 <th
                   key={col.key}

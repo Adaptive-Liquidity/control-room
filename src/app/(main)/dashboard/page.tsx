@@ -25,7 +25,7 @@ function StatCard({ label, value }: { label: string; value: string | number }) {
   return (
     <Card>
       <CardContent>
-        <div className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground/80">
+        <div className="font-mono text-xs uppercase tracking-[0.08em] text-muted-foreground/80 sm:text-[10px]">
           {label}
         </div>
         <div className="mt-2.5 text-[26px] font-semibold leading-none tracking-tight tabular-nums text-foreground/95">

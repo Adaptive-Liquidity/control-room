@@ -39,7 +39,7 @@ export function MoreSheet({
           <nav className="px-1.5 py-2">
             {moreSections.map((section) => (
               <div key={section.title} className="mb-1.5">
-                <div className="px-2.5 pb-1 pt-2.5 font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground/70">
+                <div className="px-2.5 pb-1 pt-2.5 font-mono text-xs uppercase tracking-[0.1em] text-muted-foreground/70">
                   {section.title}
                 </div>
                 <div className="space-y-px">
@@ -75,12 +75,12 @@ export function MoreSheet({
           </nav>
 
           <div className="flex items-center gap-2.5 border-t border-border/70 px-4 py-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-secondary text-[10px] font-semibold text-muted-foreground">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-secondary text-xs font-semibold text-muted-foreground">
               AC
             </div>
             <div className="min-w-0">
               <div className="truncate text-[13px] font-medium text-foreground/80">Account</div>
-              <div className="truncate font-mono text-[11px] text-muted-foreground/70">admin</div>
+              <div className="truncate font-mono text-xs text-muted-foreground/70">admin</div>
             </div>
           </div>
         </Dialog.Content>

@@ -38,7 +38,7 @@ export function Header() {
           {pageInfo.title}
         </h1>
         {pageInfo.subtitle && (
-          <p className="truncate text-[11px] text-muted-foreground">{pageInfo.subtitle}</p>
+          <p className="truncate text-xs text-muted-foreground sm:text-[11px]">{pageInfo.subtitle}</p>
         )}
       </div>
       <div className="flex items-center gap-2">

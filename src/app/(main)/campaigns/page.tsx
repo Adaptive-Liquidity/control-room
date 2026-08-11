@@ -148,7 +148,7 @@ export default function CampaignsPage() {
                         {c.emergencyStopped ? "stopped" : c.paused ? "paused" : c.status.toLowerCase()}
                       </Badge>
                       {c.autoGenDisabled && (
-                        <div className="mt-1 text-[10px] text-muted-foreground">auto-gen off</div>
+                        <div className="mt-1 text-xs text-muted-foreground sm:text-[10px]">auto-gen off</div>
                       )}
                     </>
                   ),

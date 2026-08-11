@@ -290,7 +290,7 @@ export default function QueuePage() {
 
                 <div className="grid gap-3">
                   <div>
-                    <div className="mb-1 text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+                    <div className="mb-1 text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground sm:text-[11px]">
                       Previous revision
                     </div>
                     <div className="max-h-40 overflow-auto rounded-md border border-border bg-secondary/30 p-3 text-xs whitespace-pre-wrap">
@@ -300,7 +300,7 @@ export default function QueuePage() {
                     </div>
                   </div>
                   <div>
-                    <div className="mb-1 text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+                    <div className="mb-1 text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground sm:text-[11px]">
                       Current revision
                     </div>
                     <div className="max-h-40 overflow-auto rounded-md border border-border bg-secondary/30 p-3 text-xs whitespace-pre-wrap">
@@ -312,7 +312,7 @@ export default function QueuePage() {
                 </div>
 
                 <div>
-                  <div className="mb-1 text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+                  <div className="mb-1 text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground sm:text-[11px]">
                     Guardian
                   </div>
                   <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -341,7 +341,7 @@ export default function QueuePage() {
 
                 {detail?.approvals && detail.approvals.length > 0 && (
                   <div>
-                    <div className="mb-1 text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+                    <div className="mb-1 text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground sm:text-[11px]">
                       Approvals
                     </div>
                     <ul className="space-y-1 text-xs text-muted-foreground">
@@ -356,7 +356,7 @@ export default function QueuePage() {
                 )}
 
                 <div>
-                  <label className="mb-1 block text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+                  <label className="mb-1 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground sm:text-[11px]">
                     Comment
                   </label>
                   <textarea

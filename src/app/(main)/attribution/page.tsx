@@ -67,7 +67,7 @@ export default function AttributionPage() {
         {stats.map((stat) => (
           <Card key={stat.label}>
             <CardContent className="pt-4">
-              <div className="text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+              <div className="text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground sm:text-[11px]">
                 {stat.label}
               </div>
               <div className="mt-1.5 text-2xl font-semibold tabular-nums">
