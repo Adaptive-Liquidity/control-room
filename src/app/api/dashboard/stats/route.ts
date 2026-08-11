@@ -2,7 +2,10 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { contentService } from '@/services/content.service';
+import { agentService } from '@/services/agent.service';
 import { prisma } from '@/lib/prisma';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
@@ -12,7 +15,7 @@ export async function GET() {
     const [recentQueue, upcoming, agents] = await Promise.all([
       prisma.content.findMany({ where: { status: 'PENDING_REVIEW' }, include: { author: { select: { name: true, email: true } } }, orderBy: { createdAt: 'desc' }, take: 5 }),
       prisma.content.findMany({ where: { status: 'SCHEDULED' }, orderBy: { scheduledAt: 'asc' }, take: 5 }),
-      prisma.agent.findMany(),
+      agentService.getAll(),
     ]);
     return NextResponse.json({ stats, recentQueue, upcoming, agents });
   } catch (error) {

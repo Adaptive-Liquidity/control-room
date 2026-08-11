@@ -12,6 +12,11 @@ import {
   outboxService,
 } from '@/lib/outbox/outbox.service';
 import type { N8nResumePayload } from '@/lib/n8n/contracts';
+import {
+  emitContentApproved,
+  emitContentRejected,
+  emitContentUpdated,
+} from '@/lib/pusher/server';
 
 export type ApprovalDecision = 'APPROVED' | 'REJECTED' | 'REVISION_REQUESTED';
 
@@ -39,7 +44,7 @@ export class ApprovalService {
       throw new ValidationServiceError('Comment required when requesting revision');
     }
 
-    const { content, outboxEventId } = await prisma.$transaction(async (tx) => {
+    const { content, outboxEventId, revisionId } = await prisma.$transaction(async (tx) => {
       const existing = await tx.content.findUnique({
         where: { id: opts.contentId },
         include: {
@@ -168,7 +173,7 @@ export class ApprovalService {
         createdOutboxId = event.id;
       }
 
-      return { content: updated, outboxEventId: createdOutboxId };
+      return { content: updated, outboxEventId: createdOutboxId, revisionId };
     });
 
     if (outboxEventId) {
@@ -178,6 +183,19 @@ export class ApprovalService {
       } catch (err) {
         console.error('Immediate outbox delivery failed:', err);
       }
+    }
+
+    const realtimePayload = {
+      contentId: content.id,
+      revisionId,
+      status: content.status,
+    };
+    if (opts.decision === 'APPROVED') {
+      await emitContentApproved(realtimePayload);
+    } else if (opts.decision === 'REJECTED') {
+      await emitContentRejected(realtimePayload);
+    } else {
+      await emitContentUpdated(realtimePayload);
     }
 
     return content;

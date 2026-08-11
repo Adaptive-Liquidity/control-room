@@ -3,14 +3,21 @@ import { prisma } from '@/lib/prisma';
 import { deliverResume } from '@/lib/n8n/resume-client';
 import type { N8nResumePayload } from '@/lib/n8n/contracts';
 
-const BACKOFF_MS = [
+/** Delay before attempt N (index = attempts after increment). Length = max attempts before FAILED. */
+export const OUTBOX_BACKOFF_MS = [
   0,
   15_000,
   60_000,
   5 * 60_000,
   15 * 60_000,
   60 * 60_000,
-];
+] as const;
+
+/** Returns delay ms for the given attempt count, or null when the event should mark FAILED. */
+export function outboxBackoffMs(attemptsAfterIncrement: number): number | null {
+  if (attemptsAfterIncrement >= OUTBOX_BACKOFF_MS.length) return null;
+  return OUTBOX_BACKOFF_MS[attemptsAfterIncrement] ?? OUTBOX_BACKOFF_MS[OUTBOX_BACKOFF_MS.length - 1];
+}
 
 export const OUTBOX_TYPE_N8N_RESUME = 'N8N_RESUME_REQUESTED';
 
@@ -101,7 +108,8 @@ export class OutboxService {
 
   private async markRetryOrFailed(event: OutboxEvent, error: string) {
     const attempts = event.attempts + 1;
-    if (attempts >= BACKOFF_MS.length) {
+    const delay = outboxBackoffMs(attempts);
+    if (delay === null) {
       await prisma.outboxEvent.update({
         where: { id: event.id },
         data: {
@@ -113,7 +121,6 @@ export class OutboxService {
       return;
     }
 
-    const delay = BACKOFF_MS[attempts] ?? BACKOFF_MS[BACKOFF_MS.length - 1];
     await prisma.outboxEvent.update({
       where: { id: event.id },
       data: {

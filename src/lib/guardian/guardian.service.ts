@@ -65,7 +65,8 @@ function findPatternMatches(haystack: string, pattern: string): number[] {
   return indexes;
 }
 
-function deriveResult(
+/** Exported for unit tests — CRITICAL+BLOCK → BLOCK; any BLOCK/REVIEW → REVIEW; else ALLOW. */
+export function deriveResult(
   findings: Array<{ severity: RuleSeverity; action: RuleAction }>
 ): 'ALLOW' | 'REVIEW' | 'BLOCK' {
   for (const f of findings) {

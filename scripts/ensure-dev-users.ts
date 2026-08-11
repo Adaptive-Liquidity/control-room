@@ -1,3 +1,4 @@
+import './load-env';
 import { PrismaClient, UserRole } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 
@@ -22,6 +23,8 @@ async function main() {
   await upsertUser('admin@aeon.test', 'ADMIN', 'Admin', 'AeonAdmin123!');
   await upsertUser('service@aeon.test', 'SERVICE', 'n8n Service', 'AeonService123!');
   await upsertUser('reviewer@aeon.test', 'REVIEWER', 'Reviewer', 'AeonReview123!');
+  await upsertUser('editor@aeon.test', 'EDITOR', 'Editor', 'AeonEditor123!');
+  await upsertUser('viewer@aeon.test', 'VIEWER', 'Viewer', 'AeonViewer123!');
 }
 
 main()

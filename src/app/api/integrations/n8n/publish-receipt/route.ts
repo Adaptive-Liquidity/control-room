@@ -4,6 +4,10 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { n8nPublishReceiptSchema } from '@/lib/n8n/contracts';
 import { SignatureError, verifyN8nHmac } from '@/lib/n8n/verify-signature';
+import {
+  emitContentPublished,
+  emitContentUpdated,
+} from '@/lib/pusher/server';
 
 export const runtime = 'nodejs';
 
@@ -91,6 +95,20 @@ export async function POST(req: NextRequest) {
 
       return receipt;
     });
+
+    if (payload.status === 'SUCCESS') {
+      await emitContentPublished({
+        contentId: payload.contentId,
+        revisionId: payload.revisionId,
+        status: 'PUBLISHED',
+      });
+    } else {
+      await emitContentUpdated({
+        contentId: payload.contentId,
+        revisionId: payload.revisionId,
+        status: revision.content.status,
+      });
+    }
 
     return NextResponse.json({ receipt: result, idempotent: false }, { status: 201 });
   } catch (error) {

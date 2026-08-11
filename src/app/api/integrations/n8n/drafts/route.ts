@@ -9,6 +9,7 @@ import {
   verifyN8nHmac,
 } from '@/lib/n8n/verify-signature';
 import { contentService } from '@/services/content.service';
+import { emitContentCreated } from '@/lib/pusher/server';
 
 export const runtime = 'nodejs';
 
@@ -135,6 +136,12 @@ export async function POST(req: NextRequest) {
         guardianScore: guardianResult.score,
         guardianResult: guardianResult.result,
       };
+    });
+
+    await emitContentCreated({
+      contentId: content.contentId,
+      revisionId: content.revisionId,
+      status: content.status,
     });
 
     return NextResponse.json({ ...content, idempotent: false }, { status: 201 });

@@ -49,13 +49,16 @@ export function verifyN8nHmac(opts: {
   }
 }
 
-/** Reject already-consumed event ids across bridge jobs and publish receipts. */
+/** Reject already-consumed event ids across ingress tables. */
 export async function assertEventIdUnused(eventId: string): Promise<void> {
-  const [bridge, receipt] = await Promise.all([
+  const [bridge, receipt, agentRun, metric, attribution] = await Promise.all([
     prisma.n8nBridgeJob.findUnique({ where: { eventId }, select: { id: true } }),
     prisma.publishReceipt.findUnique({ where: { eventId }, select: { id: true } }),
+    prisma.agentRun.findUnique({ where: { eventId }, select: { id: true } }),
+    prisma.metricSnapshot.findUnique({ where: { eventId }, select: { id: true } }),
+    prisma.attributionEvent.findUnique({ where: { eventId }, select: { id: true } }),
   ]);
-  if (bridge || receipt) {
+  if (bridge || receipt || agentRun || metric || attribution) {
     throw new SignatureError('eventId already consumed');
   }
 }

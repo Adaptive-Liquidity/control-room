@@ -1,18 +1,44 @@
 # n8n ↔ Control Room bridge contracts
 
 Stable reference for the authenticated draft ingress, resume callback, and publish-receipt flows.
-Apply the `control_room_foundation` migration and seed Guardian rules before exercising these endpoints:
+Apply migrations and seed Guardian rules before exercising these endpoints:
 
 ```bash
 npx prisma migrate deploy
-npx tsx scripts/seed-guardian-rules.ts
+npm run db:seed-guardian
+# Staging/prod first admin (then invite a SERVICE user in-app):
+BOOTSTRAP_ADMIN_EMAIL=ops@example.com BOOTSTRAP_ADMIN_PASSWORD='...' npm run db:bootstrap-admin
+# Local E2E only: npm run db:ensure-dev-users
 ```
 
-Create at least one active user with role `SERVICE` — draft ingestion attributes content to that account.
+Create at least one active user with role `SERVICE` — draft ingestion attributes content to that account. On staging/prod, invite `SERVICE` after `db:bootstrap-admin`. Locally, `ensure-dev-users` creates `service@aeon.test`.
+**Architecture invariant:** Control Room is the policy/audit plane; n8n is the execution plane. Social, LLM, email, and CRM credentials live in n8n — not in this Next.js app.
+
+---
+
+## Env matrix
+
+| Variable | Where | Purpose |
+|---|---|---|
+| `DATABASE_URL` | Control Room | PostgreSQL (Prisma) |
+| `NEXTAUTH_URL` / `NEXTAUTH_SECRET` | Control Room | Session auth |
+| `ALLOW_PUBLIC_SIGNUP` | Control Room | When unset/false, only ADMIN invite-style user create |
+| `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD` / `BOOTSTRAP_ADMIN_NAME` | Bootstrap CLI only | First ADMIN via `npm run db:bootstrap-admin` (not runtime app env) |
+| `N8N_INGRESS_SECRET` | Control Room + n8n | HMAC for draft / publish-receipt / metrics / attribution / agent-runs ingress |
+| `N8N_RESUME_SECRET` | Control Room + n8n | HMAC for Control Room → n8n Wait resume callbacks (**separate** from ingress) |
+| `N8N_BRIDGE_ENCRYPTION_KEY` | Control Room only | AES-GCM for `N8nBridgeJob.resumeUrlEncrypted` |
+| `CRON_SECRET` | Control Room + scheduler | Bearer token for `/api/cron/outbox-drain` |
+| `PUSHER_*` / `NEXT_PUBLIC_PUSHER_*` | Control Room | Optional realtime; UI falls back to polling |
+| `FIREBASE_ADMIN_*` / `NEXT_PUBLIC_FIREBASE_*` | Control Room | Signed asset upload URLs (GCS) |
+| Platform / LLM / Mailchimp / Discord / X keys | **n8n credentials only** | Never required by Control Room |
+
+Staging/prod cutover checklist (gates 1–24): [cutover-checklist.md](./cutover-checklist.md).
+
+---
 
 ## Shared HMAC headers (ingress)
 
-Used by `POST /api/integrations/n8n/drafts` and `POST /api/integrations/n8n/publish-receipt`.
+Used by `POST /api/integrations/n8n/drafts`, `publish-receipt`, `agent-runs`, `metrics`, and `attribution`.
 
 | Header | Value |
 |---|---|
@@ -24,7 +50,7 @@ Timestamps outside ±5 minutes are rejected. Each `eventId` may be consumed once
 
 ## 1. Draft ingress — `POST /api/integrations/n8n/drafts`
 
-Creates `Content(origin=N8N)` + first `ContentRevision` (Guardian V2 evaluated) + `N8nBridgeJob` with an encrypted resume URL. The resume URL is **never** returned by content APIs.
+Creates `Content(origin=N8N)` + first `ContentRevision` (Guardian V2 evaluated) + `N8nBridgeJob` with an encrypted resume URL. The resume URL is **never** returned by content APIs, Pusher, or logs.
 
 ### Request body
 
@@ -139,3 +165,138 @@ Requires session + `content.approve` (ADMIN / MANAGER / REVIEWER):
 - `POST /api/queue/:id/request-revision` — `{ revisionId, comment }`
 
 Stale `revisionId` (≠ `Content.currentRevisionId`) → `409`. Edits that Guardian `BLOCK`s → `422`.
+
+---
+
+## Workflow templates (MKT-03 / 04 / 05)
+
+These are n8n design templates. Implement them in n8n; Control Room only exposes the contracts above.
+
+### MKT-03 — Content Generation
+
+```text
+approved brief
+→ research package
+→ Creator (LLM in n8n)
+→ Channel Adapter
+→ draft object(s)
+→ POST /api/integrations/n8n/drafts  (HMAC + resumeUrl from Wait)
+→ WAIT (n8n Wait / webhook-waiting)
+```
+
+Notes:
+
+- Use a stable `externalDraftId` so retries are idempotent.
+- Set `resumeExpiresAt` to the Wait node expiry (or sooner).
+- Do not put LLM provider keys in Control Room env.
+
+### MKT-04 — Human Approval Gate
+
+```text
+Control Room draft
+               │
+               ▼
+              WAIT
+               │
+      ┌────────┼──────────┐
+      ▼        ▼          ▼
+ APPROVED   REJECTED   REVISION_REQUESTED
+      │
+      ▼
+   MKT-05 publisher (on APPROVED only)
+```
+
+Notes:
+
+- Wait node resumes only on authenticated Control Room callback (`N8N_RESUME_SECRET`).
+- On `REVISION_REQUESTED`, loop back to Creator with review comment; new draft must use a **new** `externalDraftId` or a new revision path agreed with ops (do not reuse a consumed Wait URL).
+- Approval in Control Room does **not** mean published.
+
+### MKT-05 — Publisher
+
+```text
+approved revision payload from resume
+→ platform formatter
+→ platform API (X / LinkedIn / … credentials in n8n)
+→ POST /api/integrations/n8n/publish-receipt
+→ Control Room sets PUBLISHED only on SUCCESS + matching contentHash
+```
+
+Notes:
+
+- Send the exact `revisionId` + `contentHash` from the resume body.
+- On platform failure, send `status: FAILED` receipt; leave content `APPROVED` for retry.
+
+Related (documented elsewhere / separate ingress):
+
+- **MKT-06** metrics → `POST /api/integrations/n8n/metrics`
+- **MKT-09** execution health → `POST /api/integrations/n8n/agent-runs`
+
+---
+
+## Recovery runbook
+
+### Expired Wait / stale resume URL
+
+Symptoms: outbox attempts fail (HTTP 404/410/timeout); `N8nBridgeJob.resumeStatus` not delivered; content may already be `APPROVED` / `REJECTED` / `REVISION_REQUESTED`.
+
+Actions:
+
+1. Confirm human decision is recorded on `Approval` + `Content.status` (canonical state is safe).
+2. Inspect `OutboxEvent` rows for the content (`PENDING` / `RETRY` / `FAILED`).
+3. If Wait URL is dead, mark the outbox event for manual intervention (`FAILED` after backoff) — **do not** invent a new resume URL in the browser.
+4. In n8n: either re-run from a fresh Wait (new `resumeUrl` via a controlled ops procedure that updates the encrypted job) or complete publishing manually and still send a **publish-receipt** so `PUBLISHED` stays receipt-gated.
+5. Never log or paste decrypted resume URLs into tickets/chat.
+
+### Outbox drain stuck
+
+```bash
+# Manual drain (staging/prod)
+curl -X POST -H "Authorization: Bearer $CRON_SECRET" \
+  "$NEXTAUTH_URL/api/cron/outbox-drain"
+```
+
+Check Settings → integration health (`GET /api/integrations/health`) for pending outbox counts. Hobby Vercel cron is daily — use an external scheduler (every 1–5 min) in production.
+
+Backoff: `0s → 15s → 1m → 5m → 15m → 1h` then `FAILED`. After fixing n8n, reset eligible events to `RETRY` with `nextAttemptAt=now()` via ops SQL only if you understand the payload; prefer re-drain of `PENDING`/`RETRY`.
+
+### Stale revision (409)
+
+Symptoms: reviewer gets `409` on approve/reject/request-revision.
+
+Cause: `revisionId` ≠ `Content.currentRevisionId` (another edit or agent revision landed).
+
+Actions:
+
+1. Reload queue detail (`GET /api/content/:id`) and review the current revision.
+2. Re-run Guardian findings on the new revision.
+3. Approve/reject the **current** `revisionId` only.
+4. Do not force-approve a stale id — concurrency invariant must hold.
+
+### n8n unavailable during approval
+
+Human decisions still commit in PostgreSQL + outbox. When n8n returns, drain outbox. Control Room state must not be corrupted by n8n downtime.
+
+### Pusher unavailable
+
+UI keeps working via React Query `refetchInterval`. Realtime is invalidation-only (IDs); never required for correctness.
+
+---
+
+## n8n security audit (runbook)
+
+Run periodically against your n8n instance (CLI or instance UI, depending on n8n version/deployment):
+
+```bash
+# Self-hosted n8n CLI (from the n8n install / container):
+n8n audit
+```
+
+Review findings for: unprotected webhooks, unused credentials, risky nodes, missing encryption / security settings.
+
+Production expectations:
+
+- Separate development vs production workflows.
+- Wait / webhook URLs not publicly guessable without auth; Control Room resume always HMAC-signed.
+- Platform and LLM credentials stored only as n8n credentials, not in Control Room `.env`.
+- If live n8n is unavailable in this environment, treat `n8n audit` as a **manual cutover gate** before prod traffic (see [cutover-checklist.md](./cutover-checklist.md)).

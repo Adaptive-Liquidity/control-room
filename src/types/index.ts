@@ -17,6 +17,9 @@ export interface Content {
   type: ContentType;
   status: ContentStatus;
   channel: Channel;
+  currentRevisionId?: string | null;
+  riskTier?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  origin?: 'MANUAL' | 'N8N';
   guardianScore: number;
   guardianChecks: GuardianChecks;
   guardianFlags: GuardianFlag[];
@@ -75,6 +78,14 @@ export interface Campaign {
   startDate: Date;
   endDate?: Date;
   budget?: number;
+  objective?: string | null;
+  thesis?: string | null;
+  approvalPolicy?: Record<string, unknown> | null;
+  dailyContentLimit?: number | null;
+  dailyPublishLimit?: number | null;
+  paused?: boolean;
+  autoGenDisabled?: boolean;
+  emergencyStopped?: boolean;
   totalImpressions: number;
   totalEngagements: number;
   totalSignups: number;

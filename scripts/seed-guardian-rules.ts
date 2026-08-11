@@ -1,8 +1,17 @@
 /**
- * Seed baseline Guardian rules (port of the former hard-coded lists).
- * Run AFTER applying the control_room_foundation migration:
- *   npx tsx scripts/seed-guardian-rules.ts
+ * Idempotent Guardian rules seed — safe for local, staging, and production.
+ *
+ * Stable key: (type, pattern). Re-runs create missing rules and update
+ * severity / action / message / autoBlock / isActive on existing matches.
+ * Does not delete operator-added rules outside this catalog.
+ *
+ * Usage:
+ *   npm run db:seed-guardian
+ *   # or: npx tsx scripts/seed-guardian-rules.ts
+ *
+ * Requires DATABASE_URL (loaded from `.env` via `./load-env`). Run after `npx prisma migrate deploy`.
  */
+import './load-env';
 import { PrismaClient, RuleAction, RuleSeverity, RuleType } from '@prisma/client';
 
 const prisma = new PrismaClient();
@@ -118,25 +127,57 @@ const RULES: SeedRule[] = [
 
 async function main() {
   let created = 0;
+  let updated = 0;
+  let unchanged = 0;
+
   for (const rule of RULES) {
+    const data = {
+      type: rule.type,
+      pattern: rule.pattern,
+      severity: rule.severity,
+      action: rule.action,
+      message: rule.message,
+      autoBlock: rule.autoBlock ?? false,
+      isActive: true,
+    };
+
     const existing = await prisma.guardianRule.findFirst({
       where: { type: rule.type, pattern: rule.pattern },
     });
-    if (existing) continue;
-    await prisma.guardianRule.create({
-      data: {
-        type: rule.type,
-        pattern: rule.pattern,
-        severity: rule.severity,
-        action: rule.action,
-        message: rule.message,
-        autoBlock: rule.autoBlock ?? false,
-        isActive: true,
-      },
-    });
-    created++;
+
+    if (!existing) {
+      await prisma.guardianRule.create({ data });
+      created++;
+      continue;
+    }
+
+    const needsUpdate =
+      existing.severity !== data.severity ||
+      existing.action !== data.action ||
+      existing.message !== data.message ||
+      existing.autoBlock !== data.autoBlock ||
+      existing.isActive !== data.isActive;
+
+    if (needsUpdate) {
+      await prisma.guardianRule.update({
+        where: { id: existing.id },
+        data: {
+          severity: data.severity,
+          action: data.action,
+          message: data.message,
+          autoBlock: data.autoBlock,
+          isActive: data.isActive,
+        },
+      });
+      updated++;
+    } else {
+      unchanged++;
+    }
   }
-  console.log(`Guardian rules seed complete. Created ${created} new rules (${RULES.length} defined).`);
+
+  console.log(
+    `Guardian rules seed complete. created=${created} updated=${updated} unchanged=${unchanged} catalog=${RULES.length}`
+  );
 }
 
 main()

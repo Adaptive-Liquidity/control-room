@@ -2,15 +2,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+import { ForbiddenError, requirePermission } from '@/lib/rbac';
 import { contentService } from '@/services/content.service';
 import { z } from 'zod';
 
 const createSchema = z.object({
   title: z.string().min(1).max(200),
   body: z.string().min(1).max(50000),
-  type: z.enum(['TWITTER_THREAD', 'BLOG_POST', 'EMAIL', 'PRESS_RELEASE', 'AD_CREATIVE', 'VIDEO_SCRIPT', 'LINKEDIN_POST', 'DISCORD_MESSAGE']),
+  type: z.enum([
+    'TWITTER_THREAD',
+    'BLOG_POST',
+    'EMAIL',
+    'PRESS_RELEASE',
+    'AD_CREATIVE',
+    'VIDEO_SCRIPT',
+    'LINKEDIN_POST',
+    'DISCORD_MESSAGE',
+  ]),
   channel: z.enum(['TWITTER', 'LINKEDIN', 'DISCORD', 'EMAIL', 'BLOG']),
   campaignId: z.string().optional(),
+  status: z.enum(['DRAFT', 'PENDING_REVIEW']).optional(),
 });
 
 export async function GET(req: NextRequest) {
@@ -38,6 +49,7 @@ export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    requirePermission(session, 'content.edit');
 
     const body = await req.json();
     const validated = createSchema.parse(body);
@@ -45,10 +57,14 @@ export async function POST(req: NextRequest) {
     const content = await contentService.create({
       ...validated,
       authorId: session.user.id as string,
+      origin: 'MANUAL',
     });
 
     return NextResponse.json(content, { status: 201 });
   } catch (error) {
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json({ error: error.message }, { status: error.statusCode });
+    }
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: 'Validation error', details: error.errors }, { status: 400 });
     }
