@@ -212,3 +212,25 @@ test.describe('calendar tiers (requires seeded users)', () => {
     await expect(page.getByTestId('calendar-agenda')).toBeHidden();
   });
 });
+
+test.describe('phone remaining pages (requires seeded users)', () => {
+  test.skip(!process.env.E2E_WITH_AUTH, 'Set E2E_WITH_AUTH=1 and seed users to run');
+
+  test('agents / library / audit / settings fit viewport', async ({ page }) => {
+    test.skip(isTablet(), 'phone-only assertions');
+    await signIn(page, ADMIN_EMAIL, ADMIN_PASSWORD);
+
+    for (const path of ['/agents', '/library', '/audit', '/settings']) {
+      await page.goto(path);
+      const overflows = await page.evaluate(
+        () => document.documentElement.scrollWidth > document.documentElement.clientWidth
+      );
+      expect(overflows, `${path} should not overflow horizontally`).toBe(false);
+    }
+
+    await page.goto('/settings');
+    await expect(page.getByRole('button', { name: 'Integration Health' })).toBeVisible();
+    await page.getByRole('button', { name: 'Guardian Rules' }).click();
+    await expect(page.getByText('Sensitivity')).toBeVisible();
+  });
+});

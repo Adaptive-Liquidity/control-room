@@ -27,7 +27,7 @@ const INVITE_ROLES = [
 ] as const;
 
 const inputClass =
-  "h-9 w-full rounded-md border border-input bg-card px-3 text-sm outline-none ring-offset-background focus:ring-2 focus:ring-ring";
+  "h-11 w-full rounded-md border border-input bg-card px-3 text-sm outline-none ring-offset-background focus:ring-2 focus:ring-ring sm:h-9";
 
 export default function TeamPage() {
   const queryClient = useQueryClient();

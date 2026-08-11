@@ -1,76 +1,171 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatusDot } from "@/components/ui/status-dot";
 
-export default function AgentsPage() {
-  const agents = [
-    { name: "Creator Agent", status: "ONLINE", metrics: [{ label: "Pieces Created", value: "142" }, { label: "On-Brand Rate", value: "94.2%" }, { label: "Avg Gen Time", value: "3.2s" }] },
-    { name: "Publisher Agent", status: "ONLINE", metrics: [{ label: "Posts Published", value: "1,247" }, { label: "On-Time Rate", value: "100%" }, { label: "Channels", value: "4" }] },
-    { name: "Analyzer Agent", status: "ONLINE", metrics: [{ label: "Impressions Tracked", value: "2.4M" }, { label: "Forecast Accuracy", value: "94.2%" }, { label: "Attribution Rate", value: "34%" }] },
-    { name: "Guardian Agent", status: "ONLINE", metrics: [{ label: "Items Reviewed", value: "1,389" }, { label: "Pass Rate", value: "96.4%" }, { label: "Blocked Today", value: "3" }] },
-  ];
+interface AgentRow {
+  id: string;
+  name: string;
+  type: string;
+  status: string;
+  mcpStatus: string;
+  mcpEndpoint?: string | null;
+  lastRunAt?: string | null;
+  aggregates24h?: {
+    runs: number;
+    success: number;
+    failed: number;
+    successRate: number | null;
+    avgLatencyMs: number | null;
+    totalTokens: number;
+    totalCostUsd: number;
+  };
+  recentRuns?: Array<{
+    status: string;
+    latencyMs: number | null;
+    createdAt: string;
+    errorMessage: string | null;
+  }>;
+  lastRun?: {
+    status: string;
+    modelAlias?: string | null;
+    promptVersion?: string | null;
+    createdAt: string;
+  } | null;
+}
 
-  const mcpServers = [
-    { name: "Twitter/X MCP", endpoint: "mcp://twitter.aeonprotocol.xyz", status: "connected" as const },
-    { name: "LinkedIn MCP", endpoint: "mcp://linkedin.aeonprotocol.xyz", status: "connected" as const },
-    { name: "Discord MCP", endpoint: "mcp://discord.aeonprotocol.xyz", status: "connected" as const },
-    { name: "Mailchimp MCP", endpoint: "mcp://mailchimp.aeonprotocol.xyz", status: "connected" as const },
-    { name: "AEON Telemetry MCP", endpoint: "mcp://telemetry.aeonprotocol.xyz", status: "connected" as const },
-    { name: "GitHub MCP", endpoint: "mcp://github.aeonprotocol.xyz", status: "disconnected" as const },
-  ];
+function statusVariant(status: string): "success" | "warning" | "destructive" | "secondary" {
+  if (status === "ONLINE") return "success";
+  if (status === "BUSY") return "warning";
+  if (status === "ERROR") return "destructive";
+  return "secondary";
+}
+
+function statusDot(status: string): "online" | "offline" | "error" {
+  if (status === "ONLINE" || status === "BUSY") return "online";
+  if (status === "ERROR") return "error";
+  return "offline";
+}
+
+export default function AgentsPage() {
+  const { data: agents, isLoading } = useQuery<AgentRow[]>({
+    queryKey: ["agents"],
+    queryFn: async () => {
+      const res = await fetch("/api/agents");
+      if (!res.ok) throw new Error("Failed to load agents");
+      return res.json();
+    },
+    refetchInterval: 20000,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="h-48 animate-pulse rounded-lg border border-border bg-secondary" />
+        ))}
+      </div>
+    );
+  }
+
+  if (!agents?.length) {
+    return (
+      <Card>
+        <CardContent className="p-6 text-sm text-muted-foreground">
+          No agents registered yet. Agent runs ingested from n8n will appear here.
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <div className="space-y-5 animate-fade-in">
-      <div className="grid grid-cols-2 gap-4">
-        {agents.map((agent) => (
-          <Card key={agent.name}>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-              <div className="flex items-center gap-2.5">
-                <StatusDot status={agent.status === "ONLINE" ? "online" : "offline"} />
-                <CardTitle>{agent.name}</CardTitle>
-              </div>
-              <Badge variant="success">{agent.status}</Badge>
-            </CardHeader>
-            <CardContent>
-              <div className="mb-4 grid grid-cols-3 gap-3">
-                {agent.metrics.map((m) => (
-                  <div key={m.label} className="text-center">
-                    <div className="text-2xl font-semibold tabular-nums">{m.value}</div>
-                    <div className="text-[10px] uppercase tracking-[0.06em] text-muted-foreground">{m.label}</div>
-                  </div>
-                ))}
-              </div>
-              <div className="space-y-1 rounded-md border border-border bg-secondary/50 p-3 font-mono text-[11px] text-muted-foreground">
-                <div><span className="text-muted-foreground/70">14:32:01</span> Generated Twitter thread (score: 92/100)</div>
-                <div><span className="text-muted-foreground/70">14:28:44</span> A/B test variant B outperformed A by 18%</div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {agents.map((agent) => {
+          const a = agent.aggregates24h;
+          const metrics = [
+            { label: "Runs (24h)", value: String(a?.runs ?? 0) },
+            {
+              label: "Success rate",
+              value: a?.successRate != null ? `${a.successRate}%` : "—",
+            },
+            {
+              label: "Avg latency",
+              value: a?.avgLatencyMs != null ? `${a.avgLatencyMs}ms` : "—",
+            },
+          ];
+          return (
+            <Card key={agent.id}>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <StatusDot status={statusDot(agent.status)} />
+                  <CardTitle>{agent.name}</CardTitle>
+                </div>
+                <Badge variant={statusVariant(agent.status)}>{agent.status}</Badge>
+              </CardHeader>
+              <CardContent>
+                <div className="mb-4 grid grid-cols-3 gap-3">
+                  {metrics.map((m) => (
+                    <div key={m.label} className="text-center">
+                      <div className="text-2xl font-semibold tabular-nums">{m.value}</div>
+                      <div className="text-xs uppercase tracking-[0.06em] text-muted-foreground sm:text-[10px]">
+                        {m.label}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="mb-2 text-xs text-muted-foreground sm:text-[11px]">
+                  {agent.type}
+                  {agent.lastRun?.modelAlias ? ` · ${agent.lastRun.modelAlias}` : ""}
+                  {agent.lastRun?.promptVersion ? ` · ${agent.lastRun.promptVersion}` : ""}
+                  {a?.totalTokens ? ` · ${a.totalTokens} tokens/24h` : ""}
+                </div>
+                <div className="space-y-1 rounded-md border border-border bg-secondary/50 p-3 font-mono text-xs text-muted-foreground sm:text-[11px]">
+                  {(agent.recentRuns ?? []).length === 0 ? (
+                    <div>No runs in the last 24h</div>
+                  ) : (
+                    (agent.recentRuns ?? []).slice(0, 4).map((r, i) => (
+                      <div key={`${r.createdAt}-${i}`}>
+                        <span className="text-muted-foreground/70">
+                          {new Date(r.createdAt).toLocaleTimeString()}
+                        </span>{" "}
+                        {r.status}
+                        {r.latencyMs != null ? ` (${r.latencyMs}ms)` : ""}
+                        {r.errorMessage ? ` — ${r.errorMessage}` : ""}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>MCP Server Status</CardTitle>
+          <CardTitle>MCP endpoints</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 gap-3">
-            {mcpServers.map((mcp) => (
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            {agents.map((agent) => (
               <div
-                key={mcp.name}
+                key={`mcp-${agent.id}`}
                 className={`flex items-center gap-3 rounded-md border p-3 ${
-                  mcp.status === "connected" ? "border-border" : "border-border opacity-60"
+                  agent.mcpStatus === "CONNECTED" ? "border-border" : "border-border opacity-60"
                 }`}
               >
-                <StatusDot status={mcp.status === "connected" ? "online" : "error"} />
+                <StatusDot status={agent.mcpStatus === "CONNECTED" ? "online" : "error"} />
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium">{mcp.name}</div>
-                  <div className="truncate font-mono text-[10px] text-muted-foreground">{mcp.endpoint}</div>
+                  <div className="text-sm font-medium">{agent.name}</div>
+                  <div className="truncate font-mono text-xs text-muted-foreground sm:text-[10px]">
+                    {agent.mcpEndpoint || "—"}
+                  </div>
                 </div>
-                <Badge variant={mcp.status === "connected" ? "success" : "destructive"}>
-                  {mcp.status}
+                <Badge variant={agent.mcpStatus === "CONNECTED" ? "success" : "destructive"}>
+                  {agent.mcpStatus.toLowerCase()}
                 </Badge>
               </div>
             ))}

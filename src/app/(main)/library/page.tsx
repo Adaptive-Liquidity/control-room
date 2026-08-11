@@ -1,58 +1,91 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { useAssetUpload, useAssets } from "@/hooks/useAssets";
 
-const FILTERS = ["All Assets", "Twitter Threads", "Blog Posts", "Email Templates", "Press Releases", "Ad Creatives", "Video Scripts"];
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
 
-const assets = [
-  { type: "Social", title: "30-Day Twitter Content Calendar", desc: "Complete thread schedule with full copy", count: "30 posts" },
-  { type: "Web", title: "Website Landing Page Copy", desc: "Full website copy for all 8 sections", count: "8 sections" },
-  { type: "Email", title: "Email Templates", desc: "Developer, institutional, newsletter templates", count: "3 templates" },
-  { type: "PR", title: "Press Release Templates", desc: "Testnet launch and partnership announcement", count: "2 releases" },
-  { type: "Ads", title: "Ad Creative Briefs", desc: "Google Search, Display, social ad copy", count: "12 creatives" },
-  { type: "Video", title: "Video Scripts", desc: "90s explainer, 60s AEGIS, 2min dev tutorial", count: "3 scripts" },
-  { type: "Deck", title: "Pitch Deck Outline", desc: "13-slide investor presentation structure", count: "13 slides" },
-  { type: "Report", title: "Epoch Report Template", desc: "Auto-generated report structure", count: "10 sections" },
-  { type: "Brand", title: "Brand Messaging Guide", desc: "Voice, forbidden words, tiered pitches", count: "Full guide" },
-  { type: "Crisis", title: "Crisis Communication Playbook", desc: "Response templates for 4 scenarios", count: "4 scenarios" },
-  { type: "Testing", title: "A/B Test Library", desc: "Historical test results and learnings", count: "24 tests" },
-  { type: "Compliance", title: "Guardian Rule Set", desc: "Forbidden words, compliance checks", count: "47 rules" },
-];
+function mimeLabel(mime: string): string {
+  if (mime.startsWith("image/")) return "Image";
+  if (mime.startsWith("video/")) return "Video";
+  if (mime === "application/pdf") return "PDF";
+  if (mime.startsWith("text/")) return "Text";
+  return "File";
+}
 
 export default function LibraryPage() {
-  const [activeFilter, setActiveFilter] = useState(0);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [error, setError] = useState<string | null>(null);
+  const { data, isLoading } = useAssets();
+  const upload = useAssetUpload();
+
+  const onPick = async (file: File | null) => {
+    if (!file) return;
+    setError(null);
+    try {
+      await upload.mutateAsync(file);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Upload failed");
+    }
+  };
 
   return (
-    <div className="animate-fade-in">
-      <div className="mb-5 flex flex-wrap gap-2">
-        {FILTERS.map((f, i) => (
-          <Button
-            key={f}
-            size="sm"
-            variant={activeFilter === i ? "default" : "outline"}
-            onClick={() => setActiveFilter(i)}
-          >
-            {f}
-          </Button>
-        ))}
+    <div className="animate-fade-in space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+        <input
+          ref={fileRef}
+          type="file"
+          className="hidden"
+          onChange={(e) => void onPick(e.target.files?.[0] ?? null)}
+        />
+        <Button size="sm" disabled={upload.isPending} onClick={() => fileRef.current?.click()}>
+          {upload.isPending ? "Uploading…" : "Upload asset"}
+        </Button>
+        <span className="text-xs text-muted-foreground">
+          Signed GCS upload (no browser Firebase Auth)
+        </span>
+        {error && <span className="text-xs text-destructive">{error}</span>}
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
-        {assets.map((asset) => (
-          <Card key={asset.title} className="cursor-pointer transition-colors hover:bg-secondary/30">
-            <CardContent className="p-5">
-              <div className="mb-3 inline-flex rounded-md border border-border bg-secondary px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
-                {asset.type}
-              </div>
-              <div className="mb-1 text-sm font-medium">{asset.title}</div>
-              <div className="text-xs leading-relaxed text-muted-foreground">{asset.desc}</div>
-              <div className="mt-3 text-xs font-medium text-primary">{asset.count}</div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {isLoading ? (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="h-28 animate-pulse rounded-lg border border-border bg-secondary" />
+          ))}
+        </div>
+      ) : !data?.items?.length ? (
+        <Card>
+          <CardContent className="p-6 text-sm text-muted-foreground">
+            No assets yet. Upload a file to populate the library.
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {data.items.map((asset) => (
+            <Card key={asset.id} className="transition-colors hover:bg-secondary/30">
+              <CardContent className="p-5">
+                <div className="mb-3 inline-flex rounded-md border border-border bg-secondary px-2 py-0.5 text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground sm:text-[10px]">
+                  {mimeLabel(asset.mimeType)}
+                </div>
+                <div className="mb-1 truncate text-sm font-medium">{asset.originalFilename}</div>
+                <div className="text-xs leading-relaxed text-muted-foreground">
+                  {asset.mimeType} · {formatBytes(asset.sizeBytes)}
+                </div>
+                <div className="mt-3 text-xs text-muted-foreground">
+                  {asset.uploadedBy?.name || asset.uploadedBy?.email || "Unknown"} ·{" "}
+                  {new Date(asset.createdAt).toLocaleDateString()}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
