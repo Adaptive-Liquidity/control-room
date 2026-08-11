@@ -5,7 +5,7 @@ export interface User {
   email: string;
   name: string | null;
   avatar: string | null;
-  role: 'ADMIN' | 'MANAGER' | 'EDITOR' | 'VIEWER';
+  role: 'ADMIN' | 'MANAGER' | 'REVIEWER' | 'EDITOR' | 'VIEWER' | 'SERVICE';
   permissions: string[];
   isActive: boolean;
 }
@@ -17,6 +17,9 @@ export interface Content {
   type: ContentType;
   status: ContentStatus;
   channel: Channel;
+  currentRevisionId?: string | null;
+  riskTier?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  origin?: 'MANUAL' | 'N8N';
   guardianScore: number;
   guardianChecks: GuardianChecks;
   guardianFlags: GuardianFlag[];
@@ -75,6 +78,14 @@ export interface Campaign {
   startDate: Date;
   endDate?: Date;
   budget?: number;
+  objective?: string | null;
+  thesis?: string | null;
+  approvalPolicy?: Record<string, unknown> | null;
+  dailyContentLimit?: number | null;
+  dailyPublishLimit?: number | null;
+  paused?: boolean;
+  autoGenDisabled?: boolean;
+  emergencyStopped?: boolean;
   totalImpressions: number;
   totalEngagements: number;
   totalSignups: number;
@@ -154,13 +165,14 @@ export type ContentType =
   | 'LINKEDIN_POST' 
   | 'DISCORD_MESSAGE';
 
-export type ContentStatus = 
-  | 'DRAFT' 
-  | 'PENDING_REVIEW' 
-  | 'APPROVED' 
-  | 'REJECTED' 
-  | 'SCHEDULED' 
-  | 'PUBLISHED' 
+export type ContentStatus =
+  | 'DRAFT'
+  | 'PENDING_REVIEW'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'REVISION_REQUESTED'
+  | 'SCHEDULED'
+  | 'PUBLISHED'
   | 'ARCHIVED';
 
 export type Channel = 'TWITTER' | 'LINKEDIN' | 'DISCORD' | 'EMAIL' | 'BLOG';

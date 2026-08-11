@@ -28,6 +28,10 @@ yarn-error.log*
 # testing / coverage
 coverage/
 .nyc_output/
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
 
 # IDE / OS
 .idea/

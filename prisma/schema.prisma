@@ -24,6 +24,10 @@ model User {
   approvals     Approval[]
   campaigns     Campaign[]
   activities    ActivityLog[]
+  revisions     ContentRevision[]
+  assets        Asset[]
+  experiments   Experiment[]
+  orgSettings   OrgSetting[]
 
   @@map("users")
 }
@@ -37,7 +41,15 @@ model Content {
   channel         Channel
   campaignId      String?
 
-  // Guardian scoring
+  // Origin / n8n bridge metadata
+  origin            ContentOrigin    @default(MANUAL)
+  externalDraftId   String?          @unique
+  n8nWorkflowId     String?
+  n8nExecutionId    String?
+  currentRevisionId String?
+  riskTier          ContentRiskTier  @default(MEDIUM)
+
+  // Guardian scoring (denormalized mirror of current revision)
   guardianScore   Int           @default(0)
   guardianChecks  Json?         // { forbiddenWords: bool, maturityBand: bool, sources: bool, disclaimer: bool, yieldPromise: bool, brandVoice: bool }
   guardianFlags   Json?         // Array of flagged issues
@@ -64,20 +76,54 @@ model Content {
 
   // Relations
   authorId        String
-  author          User          @relation(fields: [authorId], references: [id])
+  author          User              @relation(fields: [authorId], references: [id])
   approvals       Approval[]
-  campaign        Campaign?     @relation(fields: [campaignId], references: [id])
+  campaign        Campaign?         @relation(fields: [campaignId], references: [id])
+  revisions       ContentRevision[]
+  bridgeJobs      N8nBridgeJob[]
+  publishReceipts PublishReceipt[]
 
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
+  @@index([n8nWorkflowId])
+  @@index([n8nExecutionId])
   @@map("contents")
+}
+
+model ContentRevision {
+  id                    String         @id @default(cuid())
+  contentId             String
+  content               Content        @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  version               Int
+  title                 String
+  body                  String         @db.Text
+  channel               Channel
+  type                  ContentType
+  contentHash           String
+  guardianPolicyVersion String
+  guardianScore         Int
+  guardianResult        GuardianResult
+  guardianChecks        Json?
+  guardianFlags         Json?
+  createdById           String
+  createdBy             User           @relation(fields: [createdById], references: [id])
+  createdAt             DateTime       @default(now())
+
+  approvals       Approval[]
+  publishReceipts PublishReceipt[]
+  assets          ContentAsset[]
+
+  @@unique([contentId, version])
+  @@map("content_revisions")
 }
 
 model Approval {
   id          String          @id @default(cuid())
   contentId   String
   content     Content         @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  revisionId  String
+  revision    ContentRevision @relation(fields: [revisionId], references: [id])
   reviewerId  String
   reviewer    User            @relation(fields: [reviewerId], references: [id])
   status      ApprovalStatus
@@ -97,13 +143,25 @@ model Campaign {
   endDate       DateTime?
   budget        Float?
 
-  // Attribution
+  // Brief / control plane
+  objective           String?
+  thesis              String?   @db.Text
+  approvalPolicy      Json?     // { requireHuman, autoApproveBelow?, riskCeiling? }
+  dailyContentLimit   Int?
+  dailyPublishLimit   Int?
+  paused              Boolean   @default(false)
+  autoGenDisabled     Boolean   @default(false)
+  emergencyStopped    Boolean   @default(false)
+
+  // Attribution (cache — updated from MetricSnapshot / AttributionEvent)
   totalImpressions  Int         @default(0)
   totalEngagements  Int         @default(0)
   totalSignups      Int         @default(0)
   totalIntegrations Int         @default(0)
 
   contents      Content[]
+  metricSnapshots MetricSnapshot[]
+  attributionEvents AttributionEvent[]
   creatorId     String
   creator       User            @relation(fields: [creatorId], references: [id])
 
@@ -126,10 +184,152 @@ model Agent {
   mcpEndpoint   String?
   mcpStatus     McpStatus   @default(DISCONNECTED)
 
+  runs          AgentRun[]
+
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
   @@map("agents")
+}
+
+model Asset {
+  id               String   @id @default(cuid())
+  storageKey       String   @unique
+  mimeType         String
+  sizeBytes        Int
+  sha256           String?
+  originalFilename String
+  uploadedById     String
+  uploadedBy       User     @relation(fields: [uploadedById], references: [id])
+  createdAt        DateTime @default(now())
+
+  contentAssets ContentAsset[]
+
+  @@index([uploadedById])
+  @@map("assets")
+}
+
+model ContentAsset {
+  id                String          @id @default(cuid())
+  contentRevisionId String
+  contentRevision   ContentRevision @relation(fields: [contentRevisionId], references: [id], onDelete: Cascade)
+  assetId           String
+  asset             Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  position          Int             @default(0)
+  altText           String?
+  createdAt         DateTime        @default(now())
+
+  @@unique([contentRevisionId, assetId])
+  @@index([assetId])
+  @@map("content_assets")
+}
+
+model AgentRun {
+  id            String         @id @default(cuid())
+  eventId       String         @unique
+  agentId       String?
+  agent         Agent?         @relation(fields: [agentId], references: [id])
+  agentName     String?
+  workflowId    String
+  executionId   String
+  status        AgentRunStatus
+  latencyMs     Int?
+  tokensIn      Int?
+  tokensOut     Int?
+  costUsd       Float?
+  modelAlias    String?
+  promptVersion String?
+  errorCode     String?
+  errorMessage  String?
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  metadata      Json?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([agentId, createdAt])
+  @@index([workflowId, executionId])
+  @@index([status, createdAt])
+  @@map("agent_runs")
+}
+
+model MetricSnapshot {
+  id           String    @id @default(cuid())
+  eventId      String    @unique
+  contentId    String?
+  campaignId   String?
+  campaign     Campaign? @relation(fields: [campaignId], references: [id])
+  channel      Channel?
+  observedAt   DateTime
+  impressions  Int       @default(0)
+  engagements  Int       @default(0)
+  clicks       Int       @default(0)
+  signups      Int       @default(0)
+  integrations Int       @default(0)
+  reach        Int?
+  metadata     Json?
+  createdAt    DateTime  @default(now())
+
+  @@index([contentId, observedAt])
+  @@index([campaignId, observedAt])
+  @@index([observedAt])
+  @@map("metric_snapshots")
+}
+
+model AttributionEvent {
+  id         String          @id @default(cuid())
+  eventId    String          @unique
+  kind       AttributionKind
+  contentId  String?
+  campaignId String?
+  campaign   Campaign?       @relation(fields: [campaignId], references: [id])
+  occurredAt DateTime
+  value      Float?
+  currency   String?
+  sessionId  String?
+  metadata   Json?
+  createdAt  DateTime        @default(now())
+
+  @@index([contentId, occurredAt])
+  @@index([campaignId, occurredAt])
+  @@index([kind, occurredAt])
+  @@map("attribution_events")
+}
+
+model Experiment {
+  id               String           @id @default(cuid())
+  name             String
+  hypothesis       String           @db.Text
+  channel          Channel?
+  status           ExperimentStatus @default(PLANNING)
+  variants         Json             // [{ id, name, contentId? }]
+  primaryMetric    String
+  guardrailMetrics Json?            // string[]
+  outcome          String?          // winner variant id / notes — only when decided
+  decision         String?
+  liftPct          Float?           // stored only when computed from real results
+  confidencePct    Float?           // stored only when computed — never fabricated
+  startedAt        DateTime?
+  endedAt          DateTime?
+  createdById      String
+  createdBy        User             @relation(fields: [createdById], references: [id])
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@index([status])
+  @@map("experiments")
+}
+
+model OrgSetting {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       Json
+  updatedById String?
+  updatedBy   User?    @relation(fields: [updatedById], references: [id])
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  @@map("org_settings")
 }
 
 model ActivityLog {
@@ -146,14 +346,15 @@ model ActivityLog {
 }
 
 model GuardianRule {
-  id          String    @id @default(cuid())
+  id          String       @id @default(cuid())
   type        RuleType
-  pattern     String    // Regex or keyword
+  pattern     String       // Regex or keyword
   severity    RuleSeverity
+  action      RuleAction   @default(REVIEW)
   message     String
-  autoBlock   Boolean   @default(false)
-  isActive    Boolean   @default(true)
-  createdAt   DateTime  @default(now())
+  autoBlock   Boolean      @default(false)
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
 
   @@map("guardian_rules")
 }
@@ -174,12 +375,78 @@ model Integration {
   @@map("integrations")
 }
 
+model N8nBridgeJob {
+  id                 String       @id @default(cuid())
+  eventId            String       @unique
+  externalDraftId    String
+  contentId          String
+  content            Content      @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  workflowId         String
+  executionId        String
+  resumeUrlEncrypted String       @db.Text
+  resumeExpiresAt    DateTime?
+  resumeStatus       ResumeStatus @default(PENDING)
+  attemptCount       Int          @default(0)
+  lastAttemptAt      DateTime?
+  nextAttemptAt      DateTime?
+  lastError          String?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  @@index([externalDraftId])
+  @@index([resumeStatus, nextAttemptAt])
+  @@map("n8n_bridge_jobs")
+}
+
+model OutboxEvent {
+  id            String       @id @default(cuid())
+  type          String
+  aggregateId   String
+  payload       Json
+  status        OutboxStatus @default(PENDING)
+  attempts      Int          @default(0)
+  nextAttemptAt DateTime     @default(now())
+  lastError     String?
+  processedAt   DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([status, nextAttemptAt])
+  @@index([aggregateId])
+  @@map("outbox_events")
+}
+
+model PublishReceipt {
+  id             String        @id @default(cuid())
+  eventId        String        @unique
+  contentId      String
+  content        Content       @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  revisionId     String
+  revision       ContentRevision @relation(fields: [revisionId], references: [id])
+  contentHash    String
+  channel        Channel
+  platformPostId String?
+  platformUrl    String?
+  status         PublishStatus
+  publishedAt    DateTime?
+  errorCode      String?
+  errorMessage   String?
+  n8nExecutionId String?
+  rawMetadata    Json?
+  createdAt      DateTime      @default(now())
+
+  @@index([contentId])
+  @@map("publish_receipts")
+}
+
 // Enums
 enum UserRole {
   ADMIN
   MANAGER
+  REVIEWER
   EDITOR
   VIEWER
+  SERVICE
 }
 
 enum ContentType {
@@ -198,9 +465,28 @@ enum ContentStatus {
   PENDING_REVIEW
   APPROVED
   REJECTED
+  REVISION_REQUESTED
   SCHEDULED
   PUBLISHED
   ARCHIVED
+}
+
+enum ContentOrigin {
+  MANUAL
+  N8N
+}
+
+enum ContentRiskTier {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum GuardianResult {
+  ALLOW
+  REVIEW
+  BLOCK
 }
 
 enum Channel {
@@ -271,11 +557,45 @@ enum ActivityType {
   AGENT_STARTED
   AGENT_STOPPED
   AGENT_ERROR
+  AGENT_RUN_UPDATED
   CAMPAIGN_LAUNCHED
+  CAMPAIGN_PAUSED
+  CAMPAIGN_STOPPED
   INTEGRATION_CONNECTED
   INTEGRATION_ERROR
   USER_LOGIN
   SETTINGS_CHANGED
+  RESUME_DELIVERED
+  PUBLISH_RECEIPT
+  GUARDIAN_BLOCK
+  ASSET_UPLOADED
+  EXPERIMENT_CREATED
+  EXPERIMENT_UPDATED
+  METRICS_INGESTED
+}
+
+enum AgentRunStatus {
+  QUEUED
+  RUNNING
+  WAITING_APPROVAL
+  SUCCESS
+  FAILED
+}
+
+enum AttributionKind {
+  VIEW
+  CLICK
+  SIGNUP
+  ACTIVATION
+  INTEGRATION
+  TREASURY
+}
+
+enum ExperimentStatus {
+  PLANNING
+  RUNNING
+  COMPLETE
+  CANCELLED
 }
 
 enum RuleType {
@@ -294,6 +614,31 @@ enum RuleSeverity {
   CRITICAL
 }
 
+enum RuleAction {
+  ALLOW
+  REVIEW
+  BLOCK
+}
+
+enum ResumeStatus {
+  PENDING
+  DELIVERED
+  EXPIRED
+  FAILED
+}
+
+enum OutboxStatus {
+  PENDING
+  RETRY
+  PROCESSED
+  FAILED
+}
+
+enum PublishStatus {
+  SUCCESS
+  FAILED
+}
+
 enum IntegrationType {
   TWITTER
   LINKEDIN
@@ -301,6 +646,7 @@ enum IntegrationType {
   MAILCHIMP
   GITHUB
   FIREBASE
+  N8N
 }
 
 enum IntegrationStatus {

@@ -4,9 +4,8 @@ import { prisma } from '@/lib/prisma';
 
 export class AgentService {
   async getAll() {
-    return prisma.agent.findMany({
-      orderBy: { updatedAt: 'desc' },
-    });
+    const { agentRunService } = await import('@/services/agent-run.service');
+    return agentRunService.enrichAgents();
   }
 
   async getById(id: string) {
