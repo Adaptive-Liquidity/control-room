@@ -1,0 +1,252 @@
+---
+name: control-room-conventions
+description: Development conventions and patterns for control-room. TypeScript Next.js project with conventional commits.
+---
+
+# Control Room Conventions
+
+> Generated from [Adaptive-Liquidity/control-room](https://github.com/Adaptive-Liquidity/control-room) on 2026-08-11
+
+## Overview
+
+This skill teaches Claude the development patterns and conventions used in control-room.
+
+## Tech Stack
+
+- **Primary Language**: TypeScript
+- **Framework**: Next.js
+- **Architecture**: type-based module organization
+- **Test Location**: mixed
+- **Test Framework**: jest
+
+## When to Use This Skill
+
+Activate this skill when:
+- Making changes to this repository
+- Adding new features following established patterns
+- Writing tests that match project conventions
+- Creating commits with proper message format
+
+## Commit Conventions
+
+Follow these commit message conventions based on 12 analyzed commits.
+
+### Commit Style: Conventional Commits
+
+### Prefixes Used
+
+- `feat`
+- `test`
+- `chore`
+- `fix`
+
+### Message Guidelines
+
+- Average message length: ~69 characters
+- Keep first line concise and descriptive
+- Use imperative mood ("Add feature" not "Added feature")
+
+
+*Commit message example*
+
+```text
+feat: Control Room foundation — RBAC, Guardian V2, n8n bridge, outbox
+```
+
+*Commit message example*
+
+```text
+chore: durable Cursor Cloud environment for Postgres + foundation
+```
+
+*Commit message example*
+
+```text
+test(jest): add jest-environment-jsdom for component tests
+```
+
+*Commit message example*
+
+```text
+fix(shell): address final review — sheet rotation lockup, md-tier header collapse, a11y polish
+```
+
+*Commit message example*
+
+```text
+feat(nav): extract shared nav data module for adaptive shell
+```
+
+*Commit message example*
+
+```text
+feat(nav): desktop-only sidebar + tablet icon rail from shared nav data
+```
+
+*Commit message example*
+
+```text
+feat(header): collapse create actions into icon menu on phones, add audit title
+```
+
+*Commit message example*
+
+```text
+feat(nav): phone bottom tab bar + More sheet with component tests
+```
+
+## Architecture
+
+### Project Structure: Single Package
+
+This project uses **type-based** module organization.
+
+### Source Layout
+
+```
+src/
+├── __tests__/
+├── app/
+├── components/
+├── lib/
+├── services/
+├── types/
+```
+
+### Configuration Files
+
+- `.eslintrc.json`
+- `jest.config.js`
+- `package.json`
+- `playwright.config.ts`
+- `vercel.json`
+
+### Guidelines
+
+- Group code by type (components, services, utils)
+- Keep related functionality in the same type folder
+- Avoid circular dependencies between type folders
+
+## Code Style
+
+### Language: TypeScript
+
+### Naming Conventions
+
+| Element | Convention |
+|---------|------------|
+| Files | camelCase |
+| Functions | camelCase |
+| Classes | PascalCase |
+| Constants | SCREAMING_SNAKE_CASE |
+
+### Import Style: Path Aliases (@/, ~/)
+
+### Export Style: Mixed Style
+
+
+*Preferred import style*
+
+```typescript
+// Use path aliases for imports
+import { Button } from '@/components/Button'
+import { useAuth } from '@/hooks/useAuth'
+import { api } from '@/lib/api'
+```
+
+## Testing
+
+### Test Framework: jest
+
+### File Pattern: `*.test.tsx`
+
+### Test Types
+
+- **Unit tests**: Test individual functions and components in isolation
+- **E2e tests**: Test complete user flows through the application
+
+### Mocking: jest.mock
+
+
+*Test file structure*
+
+```typescript
+import { describe, it, expect } from 'jest'
+
+describe('MyFunction', () => {
+  it('should return expected result', () => {
+    const result = myFunction(input)
+    expect(result).toBe(expected)
+  })
+})
+```
+
+## Error Handling
+
+### Error Handling Style: Try-Catch Blocks
+
+
+*Standard error handling pattern*
+
+```typescript
+try {
+  const result = await riskyOperation()
+  return result
+} catch (error) {
+  console.error('Operation failed:', error)
+  throw new Error('User-friendly message')
+}
+```
+
+## Common Workflows
+
+These workflows were detected from analyzing commit patterns.
+
+### Feature Development
+
+Standard feature implementation workflow
+
+**Frequency**: ~23 times per month
+
+**Steps**:
+1. Add feature implementation
+2. Add tests for feature
+3. Update documentation
+
+**Files typically involved**:
+- `scripts/*`
+- `src/app/api/auth/signup/*`
+- `src/app/api/cron/outbox-drain/*`
+- `**/*.test.*`
+- `**/api/**`
+
+**Example commit sequence**:
+```
+feat: Control Room foundation — RBAC, Guardian V2, n8n bridge, outbox
+chore: durable Cursor Cloud environment for Postgres + foundation
+feat(nav): extract shared nav data module for adaptive shell
+```
+
+
+## Best Practices
+
+Based on analysis of the codebase, follow these practices:
+
+### Do
+
+- Use conventional commit format (feat:, fix:, etc.)
+- Write tests using jest
+- Follow *.test.tsx naming pattern
+- Use camelCase for file names
+- Prefer mixed exports
+
+### Don't
+
+- Don't use long relative imports (use aliases)
+- Don't write vague commit messages
+- Don't skip tests for new features
+- Don't deviate from established patterns without discussion
+
+---
+
+*This skill was auto-generated by [ECC Tools](https://ecc.tools). Review and customize as needed for your team.*
