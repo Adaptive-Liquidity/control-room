@@ -8,15 +8,17 @@ import { test, expect, type Page } from '@playwright/test';
 
 const REVIEWER_EMAIL = process.env.E2E_REVIEWER_EMAIL ?? 'reviewer@aeon.test';
 const REVIEWER_PASSWORD = process.env.E2E_REVIEWER_PASSWORD ?? 'AeonReview123!';
+const EDITOR_EMAIL = process.env.E2E_EDITOR_EMAIL ?? 'editor@aeon.test';
+const EDITOR_PASSWORD = process.env.E2E_EDITOR_PASSWORD ?? 'AeonEditor123!';
 
 function isTablet() {
   return test.info().project.name === 'tablet';
 }
 
-async function signIn(page: Page) {
+async function signIn(page: Page, email = REVIEWER_EMAIL, password = REVIEWER_PASSWORD) {
   await page.goto('/auth/signin');
-  await page.getByLabel(/email/i).fill(REVIEWER_EMAIL);
-  await page.getByLabel(/password/i).fill(REVIEWER_PASSWORD);
+  await page.getByLabel(/email/i).fill(email);
+  await page.getByLabel(/password/i).fill(password);
   await page.getByRole('button', { name: /sign in/i }).click();
   await page.waitForURL((url) => !url.pathname.includes('/auth/signin'), {
     timeout: 15_000,
@@ -87,5 +89,59 @@ test.describe('mobile shell (requires seeded users)', () => {
       () => document.documentElement.scrollWidth > document.documentElement.clientWidth
     );
     expect(overflows).toBe(false);
+  });
+});
+
+test.describe('phone queue review flow (requires seeded users)', () => {
+  test.skip(!process.env.E2E_WITH_AUTH, 'Set E2E_WITH_AUTH=1 and seed users to run');
+
+  test('list → detail swap, fixed action bar, approve from phone', async ({
+    page,
+    request,
+  }) => {
+    test.skip(isTablet(), 'phone-only assertions');
+    // Create a pending item as EDITOR (reviewer role has no content.edit)
+    await signIn(page, EDITOR_EMAIL, EDITOR_PASSWORD);
+    const cookies = await page.context().cookies();
+    const cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join('; ');
+    const createRes = await request.post('/api/content', {
+      headers: { Cookie: cookieHeader },
+      data: {
+        title: `E2E mobile approve ${Date.now()}`,
+        body: 'A short, plain product update post for the mobile queue E2E test. It covers the weekly engineering highlights in a neutral tone.',
+        type: 'BLOG_POST',
+        channel: 'BLOG',
+        status: 'PENDING_REVIEW',
+      },
+    });
+    expect(createRes.status()).toBe(201);
+    const created = await createRes.json();
+
+    // Switch identity: reviewer takes the queue
+    await page.context().clearCookies();
+    await signIn(page);
+
+    await page.goto('/queue');
+    const card = page.getByText(created.title, { exact: false }).first();
+    await expect(card).toBeVisible({ timeout: 20_000 });
+    await card.click();
+
+    // Detail takes over the phone screen; fixed action bar sits above the tab bar
+    const actionBar = page.getByRole('group', { name: 'Review actions' });
+    await expect(actionBar).toBeVisible();
+    await expect(
+      page.getByRole('navigation', { name: 'Mobile' })
+    ).toBeVisible();
+
+    await actionBar.getByRole('button', { name: 'Approve' }).click();
+
+    // Approval succeeded → status no longer PENDING_REVIEW → Approve disabled
+    await expect(
+      actionBar.getByRole('button', { name: 'Approve' })
+    ).toBeDisabled({ timeout: 15_000 });
+
+    // Back returns to the list
+    await page.getByRole('button', { name: 'Back to queue' }).click();
+    await expect(actionBar).toBeHidden();
   });
 });
