@@ -10,6 +10,8 @@ const REVIEWER_EMAIL = process.env.E2E_REVIEWER_EMAIL ?? 'reviewer@aeon.test';
 const REVIEWER_PASSWORD = process.env.E2E_REVIEWER_PASSWORD ?? 'AeonReview123!';
 const EDITOR_EMAIL = process.env.E2E_EDITOR_EMAIL ?? 'editor@aeon.test';
 const EDITOR_PASSWORD = process.env.E2E_EDITOR_PASSWORD ?? 'AeonEditor123!';
+const ADMIN_EMAIL = process.env.E2E_ADMIN_EMAIL ?? 'admin@aeon.test';
+const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? 'AeonAdmin123!';
 
 function isTablet() {
   return test.info().project.name === 'tablet';
@@ -143,5 +145,29 @@ test.describe('phone queue review flow (requires seeded users)', () => {
     // Back returns to the list
     await page.getByRole('button', { name: 'Back to queue' }).click();
     await expect(actionBar).toBeHidden();
+  });
+});
+
+test.describe('table → card transform (requires seeded users)', () => {
+  test.skip(!process.env.E2E_WITH_AUTH, 'Set E2E_WITH_AUTH=1 and seed users to run');
+
+  test('phone: team page renders cards instead of a table', async ({ page }) => {
+    test.skip(isTablet(), 'phone-only assertions');
+    await signIn(page, ADMIN_EMAIL, ADMIN_PASSWORD);
+    await page.goto('/team');
+
+    const cards = page.getByTestId('responsive-table-cards');
+    await expect(cards).toBeVisible({ timeout: 20_000 });
+    await expect(cards.getByText('reviewer@aeon.test')).toBeVisible();
+    await expect(page.getByRole('table')).toBeHidden();
+  });
+
+  test('tablet: team page renders the real table', async ({ page }) => {
+    test.skip(!isTablet(), 'tablet-only assertions');
+    await signIn(page, ADMIN_EMAIL, ADMIN_PASSWORD);
+    await page.goto('/team');
+
+    await expect(page.getByRole('table')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId('responsive-table-cards')).toBeHidden();
   });
 });

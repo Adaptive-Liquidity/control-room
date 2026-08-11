@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatusDot } from "@/components/ui/status-dot";
+import { ResponsiveTable } from "@/components/ui/responsive-table";
 
 interface DashboardData {
   stats: {
@@ -64,7 +65,7 @@ export default function DashboardPage() {
         <StatCard label="Pending approvals" value={stats?.pendingApprovals || 0} />
         <StatCard label="Scheduled" value={stats?.scheduledPosts || 0} />
         <StatCard label="Published (7d)" value={stats?.publishedThisEpoch || 0} />
-        <StatCard label="Active agents" value={`${stats?.activeAgents || 0}/4`} />
+        <StatCard label="Active agents" value={stats?.activeAgents || 0} />
         <StatCard label="Guardian pass" value={`${stats?.guardianPassRate || 0}%`} />
         <StatCard label="Attributed signups" value={stats?.contentToDevAttribution || 0} />
       </div>
@@ -106,30 +107,29 @@ export default function DashboardPage() {
             </Link>
           </CardHeader>
           <CardContent>
-            <div className="divide-y divide-border">
-              {(data?.agents?.length
-                ? data.agents
-                : [
-                    { id: "1", name: "Creator", type: "CREATOR", status: "OFFLINE", mcpStatus: "DISCONNECTED" },
-                    { id: "2", name: "Publisher", type: "PUBLISHER", status: "OFFLINE", mcpStatus: "DISCONNECTED" },
-                    { id: "3", name: "Analyzer", type: "ANALYZER", status: "OFFLINE", mcpStatus: "DISCONNECTED" },
-                    { id: "4", name: "Guardian", type: "GUARDIAN", status: "OFFLINE", mcpStatus: "DISCONNECTED" },
-                  ]
-              ).map((agent: any) => (
-                <div key={agent.id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
-                  <StatusDot status={agent.status === "ONLINE" ? "online" : "offline"} />
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium">{agent.name}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {agent.type} · {agent.status}
+            {!data?.agents?.length ? (
+              <p className="text-sm text-muted-foreground">No agents registered yet.</p>
+            ) : (
+              <div className="divide-y divide-border">
+                {data.agents.map((agent: any) => (
+                  <div key={agent.id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
+                    <StatusDot status={agent.status === "ONLINE" || agent.status === "BUSY" ? "online" : agent.status === "ERROR" ? "error" : "offline"} />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium">{agent.name}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {agent.type} · {agent.status}
+                        {agent.aggregates24h?.runs != null
+                          ? ` · ${agent.aggregates24h.runs} runs/24h`
+                          : ""}
+                      </div>
                     </div>
+                    <Badge variant={agent.mcpStatus === "CONNECTED" ? "success" : "dim"}>
+                      {agent.mcpStatus === "CONNECTED" ? "MCP" : "Idle"}
+                    </Badge>
                   </div>
-                  <Badge variant={agent.mcpStatus === "CONNECTED" ? "success" : "dim"}>
-                    {agent.mcpStatus === "CONNECTED" ? "MCP" : "Idle"}
-                  </Badge>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -145,34 +145,49 @@ export default function DashboardPage() {
           {!data?.upcoming?.length ? (
             <p className="text-sm text-muted-foreground">Nothing scheduled.</p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
-                    <th className="pb-2 pr-4 font-medium">Date</th>
-                    <th className="pb-2 pr-4 font-medium">Content</th>
-                    <th className="pb-2 pr-4 font-medium">Channel</th>
-                    <th className="pb-2 font-medium">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.upcoming.map((item: any) => (
-                    <tr key={item.id} className="border-b border-border/70 last:border-0">
-                      <td className="py-2.5 pr-4 font-mono text-xs text-muted-foreground">
-                        {item.scheduledAt
-                          ? new Date(item.scheduledAt).toLocaleDateString()
-                          : "—"}
-                      </td>
-                      <td className="py-2.5 pr-4 font-medium">{item.title}</td>
-                      <td className="py-2.5 pr-4 text-muted-foreground">{item.channel}</td>
-                      <td className="py-2.5">
-                        <Badge variant="secondary">{item.status}</Badge>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+<ResponsiveTable
+              rows={data.upcoming}
+              rowKey={(item) => item.id}
+              tdClassName="py-2.5"
+              columns={[
+                {
+                  key: "date",
+                  header: "Date",
+                  cell: (item) => (
+                    <span className="font-mono text-xs text-muted-foreground">
+                      {item.scheduledAt ? new Date(item.scheduledAt).toLocaleDateString() : "—"}
+                    </span>
+                  ),
+                },
+                {
+                  key: "content",
+                  header: "Content",
+                  cell: (item) => <span className="font-medium">{item.title}</span>,
+                },
+                {
+                  key: "channel",
+                  header: "Channel",
+                  cell: (item) => <span className="text-muted-foreground">{item.channel}</span>,
+                },
+                {
+                  key: "status",
+                  header: "Status",
+                  cell: (item) => <Badge variant="secondary">{item.status}</Badge>,
+                },
+              ]}
+              card={{
+                title: (item) => item.title,
+                badge: (item) => <Badge variant="secondary">{item.status}</Badge>,
+                fields: [
+                  {
+                    label: "Date",
+                    value: (item) =>
+                      item.scheduledAt ? new Date(item.scheduledAt).toLocaleDateString() : "—",
+                  },
+                  { label: "Channel", value: (item) => item.channel },
+                ],
+              }}
+            />
           )}
         </CardContent>
       </Card>
