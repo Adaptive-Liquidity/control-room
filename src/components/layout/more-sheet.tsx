@@ -19,8 +19,8 @@ export function MoreSheet({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 md:hidden" />
-        <Dialog.Content className="fixed inset-x-0 bottom-0 z-50 max-h-[80vh] overflow-y-auto rounded-t-xl border-t border-border bg-card pb-[calc(env(safe-area-inset-bottom)+1rem)] md:hidden">
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60" />
+        <Dialog.Content className="fixed inset-x-0 bottom-0 z-50 max-h-[80vh] overflow-y-auto rounded-t-xl border-t border-border bg-card pb-[calc(env(safe-area-inset-bottom)+1rem)]" aria-describedby={undefined}>
           <div className="flex h-12 items-center justify-between border-b border-border/70 px-4">
             <Dialog.Title className="text-[14px] font-semibold tracking-tight text-foreground/90">
               Menu

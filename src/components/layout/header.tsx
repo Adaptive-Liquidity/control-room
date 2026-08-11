@@ -42,7 +42,7 @@ export function Header() {
         )}
       </div>
       <div className="flex items-center gap-2">
-        <div className="hidden items-center gap-2 sm:flex">
+        <div className="hidden items-center gap-2 md:flex">
           <Button asChild variant="outline" size="sm" className="h-8 text-xs font-medium">
             <Link href="/studio">New content</Link>
           </Button>
@@ -50,7 +50,7 @@ export function Header() {
             <Link href="/campaigns">New campaign</Link>
           </Button>
         </div>
-        <div className="sm:hidden">
+        <div className="md:hidden">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="icon" aria-label="Create new">

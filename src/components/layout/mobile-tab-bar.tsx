@@ -25,7 +25,7 @@ export function MobileTabBar({ onOpenMore }: { onOpenMore: () => void }) {
               href={item.href}
               aria-current={isActive ? "page" : undefined}
               className={cn(
-                "flex min-h-[52px] flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[11px] font-medium transition-colors",
+                "flex min-h-[52px] flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-xs font-medium transition-colors",
                 isActive
                   ? "text-foreground/90"
                   : "text-muted-foreground hover:text-foreground/80"
@@ -41,7 +41,7 @@ export function MobileTabBar({ onOpenMore }: { onOpenMore: () => void }) {
           onClick={onOpenMore}
           aria-label="Open more navigation"
           className={cn(
-            "flex min-h-[52px] flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[11px] font-medium transition-colors",
+            "flex min-h-[52px] flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-xs font-medium transition-colors",
             moreActive
               ? "text-foreground/90"
               : "text-muted-foreground hover:text-foreground/80"
