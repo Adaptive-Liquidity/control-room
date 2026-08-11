@@ -171,3 +171,22 @@ test.describe('table → card transform (requires seeded users)', () => {
     await expect(page.getByTestId('responsive-table-cards')).toBeHidden();
   });
 });
+
+test.describe('phone studio (requires seeded users)', () => {
+  test.skip(!process.env.E2E_WITH_AUTH, 'Set E2E_WITH_AUTH=1 and seed users to run');
+
+  test('editor fits the viewport and primary controls are reachable', async ({ page }) => {
+    test.skip(isTablet(), 'phone-only assertions');
+    await signIn(page, EDITOR_EMAIL, EDITOR_PASSWORD);
+    await page.goto('/studio');
+
+    const overflows = await page.evaluate(
+      () => document.documentElement.scrollWidth > document.documentElement.clientWidth
+    );
+    expect(overflows).toBe(false);
+    await expect(page.getByPlaceholder('Title')).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Submit for Approval' })
+    ).toBeVisible();
+  });
+});
