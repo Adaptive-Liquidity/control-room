@@ -232,7 +232,7 @@ Manual Trigger
 → MKT-04 Wait (24h) → Parse decision → Decision Switch
    APPROVED → Validate → Channel route → (NoOp channel) → Staging Mock Publisher
             → Build SUCCESS|FAILED receipt → HMAC → POST /publish-receipt
-            → MKT-09 AgentRun SUCCESS (agentName=publisher)
+            → MKT-09 AgentRun SUCCESS|FAILED from receipt (agentName=publisher)
    REJECTED / REVISION_REQUESTED / MALFORMED → stop (no publish)
 ```
 
@@ -307,8 +307,7 @@ Schedule (every 6h) + manual trigger → HMAC → `POST /api/integrations/n8n/me
 |---|---|---|
 | `RUNNING` | After Creator parse | `creator` |
 | `WAITING_APPROVAL` | After draft handoff, before Wait | `creator` |
-| `SUCCESS` | After publish-receipt | `publisher` |
-| `FAILED` | (optional) publisher/error path | `publisher` / `creator` |
+| `SUCCESS` / `FAILED` | After publish-receipt (from receipt `status`) | `publisher` |
 
 Always include `modelAlias`, `promptVersion`, and `latencyMs` when available.
 

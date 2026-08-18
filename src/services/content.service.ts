@@ -397,6 +397,26 @@ export class ContentService {
   }
 
   async schedule(id: string, scheduledAt: Date) {
+    const existing = await prisma.content.findUnique({ where: { id } });
+    if (!existing) {
+      throw new Error('Content not found');
+    }
+    if (existing.status !== 'APPROVED' && existing.status !== 'SCHEDULED') {
+      throw new ConflictError(
+        `Cannot schedule content in status ${existing.status}; must be APPROVED or SCHEDULED`
+      );
+    }
+    if (existing.currentRevisionId) {
+      const revision = await prisma.contentRevision.findUnique({
+        where: { id: existing.currentRevisionId },
+        select: { guardianResult: true },
+      });
+      if (revision?.guardianResult === 'BLOCK') {
+        throw new ValidationServiceError(
+          'Cannot schedule content with Guardian BLOCK result'
+        );
+      }
+    }
     return prisma.content.update({
       where: { id },
       data: { status: 'SCHEDULED', scheduledAt },

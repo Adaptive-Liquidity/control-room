@@ -1,7 +1,7 @@
 {
   "id": "Mr2NsTTTVKvuGZKa",
   "name": "AEON Control Room — Staged Agentic Marketing (MKT-03/04/05)",
-  "active": true,
+  "active": false,
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
@@ -76,7 +76,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const c = $input.first().json;\nconst timestamp = Math.floor(Date.now() / 1000).toString();\nconst content = {\n  title: c.title,\n  body: c.body,\n  type: c.type,\n  channel: c.channel,\n  campaignId: (c.campaignId === undefined || c.campaignId === \"\") ? null : c.campaignId\n};\nconst bodyObj = {\n  schemaVersion: '1',\n  eventId: c.eventId,\n  externalDraftId: c.externalDraftId,\n  workflowId: $workflow.id,\n  executionId: $execution.id,\n  resumeUrl: $execution.resumeUrl,\n  content: content,\n  metadata: { agent: 'creator', promptVersion: 'mkt-03-v1' }\n};\n// Serialize ONCE. rawBody is the exact bytes signed and transmitted.\nconst rawBody = JSON.stringify(bodyObj);\nreturn [{ json: {\n  eventId: c.eventId,\n  externalDraftId: c.externalDraftId,\n  timestamp: timestamp,\n  rawBody: rawBody,\n  hmacMessage: timestamp + '.' + rawBody,\n  content: content\n} }];"
+        "jsCode": "const c = $input.first().json;\nconst timestamp = Math.floor(Date.now() / 1000).toString();\nconst campaignId = (c.campaignId === undefined || c.campaignId === '') ? null : c.campaignId;\nconst content = {\n  title: c.title,\n  body: c.body,\n  type: c.type,\n  channel: c.channel\n};\nconst bodyObj = {\n  schemaVersion: '1',\n  eventId: c.eventId,\n  externalDraftId: c.externalDraftId,\n  workflowId: $workflow.id,\n  executionId: $execution.id,\n  resumeUrl: $execution.resumeUrl,\n  content: content,\n  metadata: { agent: 'creator', promptVersion: 'mkt-03-v1' }\n};\nif (campaignId) bodyObj.campaignId = campaignId;\n// Serialize ONCE. rawBody is the exact bytes signed and transmitted.\nconst rawBody = JSON.stringify(bodyObj);\nreturn [{ json: {\n  eventId: c.eventId,\n  externalDraftId: c.externalDraftId,\n  timestamp: timestamp,\n  rawBody: rawBody,\n  hmacMessage: timestamp + '.' + rawBody,\n  content: content,\n  campaignId: campaignId\n} }];"
       },
       "id": "5fa1c2b5-a0f3-43ab-9e41-f6aa761364ed",
       "name": "MKT-03 ▪ Normalize + Canonical Raw Body",
@@ -952,7 +952,7 @@
         288
       ],
       "parameters": {
-        "jsCode": "const a = $('Validate Approved Revision').item.json;\nconst eventId = 'ar-success-' + $execution.id + '-' + Date.now();\nconst bodyObj = {\n  schemaVersion: '1',\n  eventId,\n  workflowId: $workflow.id,\n  executionId: $execution.id,\n  status: 'SUCCESS',\n  agentName: 'publisher',\n  modelAlias: 'staging-mock',\n  promptVersion: 'mkt-05-v1',\n  finishedAt: new Date().toISOString(),\n  metadata: { stage: 'publish_receipt', channel: a.channel, contentId: a.contentId }\n};\nconst timestamp = Math.floor(Date.now() / 1000).toString();\nconst rawBody = JSON.stringify(bodyObj);\nreturn [{ json: Object.assign({}, $input.first().json, {\n  __agentRun: { timestamp, rawBody, hmacMessage: timestamp + '.' + rawBody }\n}) }];"
+        "jsCode": "const a = $('Validate Approved Revision').item.json;\nconst receipt = $('MKT-05 ▪ Normalize + Canonical Receipt Body').item.json;\nlet runStatus = 'FAILED';\ntry {\n  const parsed = JSON.parse(receipt.rawBody);\n  runStatus = parsed.status === 'SUCCESS' ? 'SUCCESS' : 'FAILED';\n} catch (e) {\n  runStatus = 'FAILED';\n}\nconst eventId = 'ar-pub-' + $execution.id + '-' + Date.now();\nconst bodyObj = {\n  schemaVersion: '1',\n  eventId,\n  workflowId: $workflow.id,\n  executionId: $execution.id,\n  status: runStatus,\n  agentName: 'publisher',\n  modelAlias: 'staging-mock',\n  promptVersion: 'mkt-05-v1',\n  finishedAt: new Date().toISOString(),\n  metadata: { stage: 'publish_receipt', channel: a.channel, contentId: a.contentId, receiptStatus: runStatus }\n};\nconst timestamp = Math.floor(Date.now() / 1000).toString();\nconst rawBody = JSON.stringify(bodyObj);\nreturn [{ json: Object.assign({}, $input.first().json, {\n  __agentRun: { timestamp, rawBody, hmacMessage: timestamp + '.' + rawBody }\n}) }];"
       }
     },
     {
@@ -1090,7 +1090,7 @@
         960
       ],
       "parameters": {
-        "jsCode": "const j = $input.first().json;\nconst allowed = j.allowed !== false;\nif (!allowed) {\n  throw new Error('Policy check blocked generation: ' + (j.reason || 'unknown') + '. Failing closed before LLM spend.');\n}\nreturn [{ json: { policyAllowed: true, policy: j } }];"
+        "jsCode": "const j = $input.first().json;\nif (j.allowed !== true) {\n  throw new Error('Policy check blocked generation: ' + (j.reason || 'missing allowed=true') + '. Failing closed before LLM spend.');\n}\nreturn [{ json: { policyAllowed: true, policy: j } }];"
       }
     },
     {

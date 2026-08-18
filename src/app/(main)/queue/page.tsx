@@ -384,7 +384,7 @@ export default function QueuePage() {
                   </div>
                 )}
 
-                {canEdit && detail && SCHEDULABLE_STATUSES.has(detail.content.status) && (
+                {canApprove && detail && SCHEDULABLE_STATUSES.has(detail.content.status) && (
                   <div>
                     <label
                       htmlFor="schedule-at"

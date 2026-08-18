@@ -4,7 +4,11 @@ import { z } from 'zod';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { ForbiddenError, requirePermission } from '@/lib/rbac';
-import { contentService } from '@/services/content.service';
+import {
+  ConflictError,
+  ValidationServiceError,
+  contentService,
+} from '@/services/content.service';
 
 const bodySchema = z.object({
   scheduledAt: z.string().datetime(),
@@ -16,13 +20,14 @@ export async function POST(
 ) {
   try {
     const session = await getServerSession(authOptions);
-    requirePermission(session, 'content.edit');
+    // Scheduling is a post-approval publishing control — same gate as approve.
+    requirePermission(session, 'content.approve');
 
     const { scheduledAt } = bodySchema.parse(await req.json());
 
     const existing = await prisma.content.findUnique({
       where: { id: params.id },
-      select: { id: true },
+      select: { id: true, status: true, currentRevisionId: true },
     });
     if (!existing) {
       return NextResponse.json({ error: 'Content not found' }, { status: 404 });
@@ -32,6 +37,9 @@ export async function POST(
     return NextResponse.json(content);
   } catch (error) {
     if (error instanceof ForbiddenError) {
+      return NextResponse.json({ error: error.message }, { status: error.statusCode });
+    }
+    if (error instanceof ConflictError || error instanceof ValidationServiceError) {
       return NextResponse.json({ error: error.message }, { status: error.statusCode });
     }
     if (error instanceof z.ZodError) {
