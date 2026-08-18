@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import { ChevronLeft } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +29,10 @@ const CHANNEL_LABELS: Record<string, string> = {
 const FILTERS: QueueFilter[] = ["all", "pending", "approved", "rejected", "draft"];
 
 const APPROVE_ROLES = new Set(["ADMIN", "MANAGER", "REVIEWER"]);
+
+const EDIT_ROLES = new Set(["ADMIN", "MANAGER", "EDITOR"]);
+
+const SCHEDULABLE_STATUSES = new Set(["APPROVED", "SCHEDULED"]);
 
 function statusVariant(status: string): "warning" | "success" | "destructive" | "secondary" {
   if (status === "PENDING_REVIEW" || status === "REVISION_REQUESTED") return "warning";
@@ -67,10 +72,12 @@ function GuardianFlags({ flags }: { flags: unknown }) {
 
 export default function QueuePage() {
   const { data: session } = useSession();
+  const qc = useQueryClient();
   const [filter, setFilter] = useState<QueueFilter>("pending");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [comment, setComment] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
+  const [scheduledAt, setScheduledAt] = useState("");
 
   const { data, isLoading, isError, error, refetch } = useQueue(filter);
   const { data: detail, isLoading: detailLoading } = useContent(selectedId);
@@ -80,7 +87,29 @@ export default function QueuePage() {
   const requestRevision = useRequestRevision();
 
   const canApprove = APPROVE_ROLES.has(session?.user?.role ?? "");
+  const canEdit = EDIT_ROLES.has(session?.user?.role ?? "");
   const busy = approve.isPending || reject.isPending || requestRevision.isPending;
+
+  const schedule = useMutation({
+    mutationFn: async ({ contentId, at }: { contentId: string; at: string }) => {
+      const res = await fetch(`/api/content/${contentId}/schedule`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scheduledAt: new Date(at).toISOString() }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Schedule failed (${res.status})`);
+      }
+      return res.json();
+    },
+    onSuccess: (_data, vars) => {
+      setScheduledAt("");
+      void qc.invalidateQueries({ queryKey: ["queue"] });
+      void qc.invalidateQueries({ queryKey: ["content", vars.contentId] });
+      void qc.invalidateQueries({ queryKey: ["calendar"] });
+    },
+  });
 
   const items = useMemo(() => data?.items ?? [], [data?.items]);
   const revisionId =
@@ -352,6 +381,48 @@ export default function QueuePage() {
                         </li>
                       ))}
                     </ul>
+                  </div>
+                )}
+
+                {canEdit && detail && SCHEDULABLE_STATUSES.has(detail.content.status) && (
+                  <div>
+                    <label
+                      htmlFor="schedule-at"
+                      className="mb-1 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground sm:text-[11px]"
+                    >
+                      Schedule
+                    </label>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        id="schedule-at"
+                        type="datetime-local"
+                        className="h-9 flex-1 rounded-md border border-border bg-card px-3 text-sm outline-none focus:ring-1 focus:ring-ring"
+                        value={scheduledAt}
+                        onChange={(e) => setScheduledAt(e.target.value)}
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={!scheduledAt || schedule.isPending}
+                        onClick={() =>
+                          schedule.mutate({ contentId: detail.content.id, at: scheduledAt })
+                        }
+                      >
+                        {schedule.isPending ? "Scheduling…" : "Schedule"}
+                      </Button>
+                    </div>
+                    {schedule.isError && (
+                      <p className="mt-1.5 text-xs text-destructive">
+                        {schedule.error instanceof Error
+                          ? schedule.error.message
+                          : "Schedule failed"}
+                      </p>
+                    )}
+                    {detail.content.status === "SCHEDULED" && !schedule.isPending && (
+                      <p className="mt-1.5 text-xs text-muted-foreground">
+                        Currently scheduled — submitting again reschedules.
+                      </p>
+                    )}
                   </div>
                 )}
 

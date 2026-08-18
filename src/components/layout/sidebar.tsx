@@ -2,11 +2,22 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { signOut, useSession } from "next-auth/react";
+import { LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { isNavItemActive, navSections } from "./nav-data";
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { data: session } = useSession();
+  const label = session?.user?.name || session?.user?.email || "Account";
+  const role = session?.user?.role?.toLowerCase() || "signed in";
+  const initials = (session?.user?.name || session?.user?.email || "A")
+    .split(/\s+/)
+    .map((p) => p[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
 
   return (
     <aside className="fixed left-0 top-0 z-50 hidden h-screen w-[212px] flex-col border-r border-border bg-card lg:flex">
@@ -58,14 +69,24 @@ export function Sidebar() {
         ))}
       </nav>
 
-      <div className="flex items-center gap-2.5 border-t border-border/70 px-3.5 py-3">
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border bg-secondary text-[10px] font-semibold text-muted-foreground">
-          AC
+      <div className="border-t border-border/70 px-3.5 py-3">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border bg-secondary text-[10px] font-semibold text-muted-foreground">
+            {initials}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[12px] font-medium text-foreground/80">{label}</div>
+            <div className="truncate font-mono text-[10px] text-muted-foreground/70">{role}</div>
+          </div>
         </div>
-        <div className="min-w-0">
-          <div className="truncate text-[12px] font-medium text-foreground/80">Account</div>
-          <div className="truncate font-mono text-[10px] text-muted-foreground/70">admin</div>
-        </div>
+        <button
+          type="button"
+          onClick={() => void signOut({ callbackUrl: "/auth/signin" })}
+          className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-[6px] border border-border/70 px-2 py-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-secondary/50 hover:text-foreground/80"
+        >
+          <LogOut className="h-3 w-3" strokeWidth={1.75} />
+          Sign out
+        </button>
       </div>
     </aside>
   );

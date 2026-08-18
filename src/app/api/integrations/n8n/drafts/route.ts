@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { encrypt } from '@/lib/crypto';
+import { evaluateCampaignPolicy } from '@/lib/n8n/campaign-policy';
 import { n8nDraftIngressSchema } from '@/lib/n8n/contracts';
 import {
   SignatureError,
@@ -52,6 +53,22 @@ export async function POST(req: NextRequest) {
         },
         { status: 200 }
       );
+    }
+
+    if (payload.campaignId) {
+      const decision = await evaluateCampaignPolicy(payload.campaignId);
+      if (!decision) {
+        return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
+      }
+      if (!decision.allowed) {
+        return NextResponse.json(
+          {
+            error: `Campaign policy rejected this draft: ${decision.reason}`,
+            reason: decision.reason,
+          },
+          { status: 409 }
+        );
+      }
     }
 
     await assertEventIdUnused(payload.eventId);

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,6 +30,17 @@ type GuardianResult = {
   flags?: unknown[];
 };
 
+interface AssetRow {
+  id: string;
+  filename: string;
+  mimeType: string;
+}
+
+interface SavedDraft {
+  contentId: string;
+  revisionId: string;
+}
+
 function apiErrorMessage(err: unknown): string {
   if (!(err instanceof Error)) return "Save failed";
   const status = (err as Error & { status?: number }).status;
@@ -48,6 +60,46 @@ export default function StudioPage() {
   const [isChecking, setIsChecking] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [savedDraft, setSavedDraft] = useState<SavedDraft | null>(null);
+  const [selectedAssetId, setSelectedAssetId] = useState("");
+  const [altText, setAltText] = useState("");
+  const [attachMessage, setAttachMessage] = useState<string | null>(null);
+
+  const { data: assets } = useQuery<{ items: AssetRow[] }>({
+    queryKey: ["assets", "studio"],
+    enabled: Boolean(savedDraft),
+    queryFn: async () => {
+      const res = await fetch("/api/assets?limit=50");
+      if (!res.ok) throw new Error("Failed to load assets");
+      return res.json();
+    },
+  });
+
+  const attach = useMutation({
+    mutationFn: async () => {
+      if (!savedDraft) throw new Error("Save the draft before attaching assets");
+      const res = await fetch("/api/assets/attach", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contentRevisionId: savedDraft.revisionId,
+          assetId: selectedAssetId,
+          ...(altText.trim() ? { altText: altText.trim() } : {}),
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Attach failed (${res.status})`);
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      setAttachMessage("Asset attached to the current revision");
+      setSelectedAssetId("");
+      setAltText("");
+    },
+    onError: (e) => setAttachMessage(e instanceof Error ? e.message : "Attach failed"),
+  });
 
   const handleCheck = async () => {
     setIsChecking(true);
@@ -82,6 +134,10 @@ export default function StudioPage() {
         channel,
         status,
       });
+      if (content?.id && content?.currentRevisionId) {
+        setSavedDraft({ contentId: content.id, revisionId: content.currentRevisionId });
+        setAttachMessage(null);
+      }
       setMessage(
         status === "DRAFT"
           ? `Draft saved (${content.id})`
@@ -234,12 +290,55 @@ export default function StudioPage() {
           <CardHeader className="pb-3">
             <CardTitle>Assets</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2 text-xs text-muted-foreground">
-            <p>
-              Upload via Library (signed GCS URL). After save, attach with{" "}
-              <code className="font-mono">POST /api/assets/attach</code> using the revision id.
-            </p>
-            <a href="/library" className="text-primary hover:underline">
+          <CardContent className="space-y-3 text-xs text-muted-foreground">
+            {!savedDraft ? (
+              <p>
+                Upload via Library (signed GCS URL). Save a draft first — assets attach to a
+                content revision.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                <p className="font-mono text-[11px]">revision {savedDraft.revisionId}</p>
+                <select
+                  aria-label="Asset to attach"
+                  className="h-9 w-full rounded-md border border-border bg-card px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
+                  value={selectedAssetId}
+                  onChange={(e) => {
+                    setSelectedAssetId(e.target.value);
+                    setAttachMessage(null);
+                  }}
+                >
+                  <option value="">Select an asset…</option>
+                  {(assets?.items ?? []).map((asset) => (
+                    <option key={asset.id} value={asset.id}>
+                      {asset.filename}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  aria-label="Alt text"
+                  className="h-9 w-full rounded-md border border-border bg-card px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
+                  placeholder="Alt text (optional)"
+                  value={altText}
+                  onChange={(e) => setAltText(e.target.value)}
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full"
+                  disabled={!selectedAssetId || attach.isPending}
+                  onClick={() => attach.mutate()}
+                >
+                  {attach.isPending ? "Attaching…" : "Attach asset"}
+                </Button>
+                {attachMessage && (
+                  <p className={attach.isError ? "text-destructive" : "text-muted-foreground"}>
+                    {attachMessage}
+                  </p>
+                )}
+              </div>
+            )}
+            <a href="/library" className="inline-block text-primary hover:underline">
               Open Library →
             </a>
           </CardContent>

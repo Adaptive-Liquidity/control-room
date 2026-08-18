@@ -1,8 +1,10 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSession } from "next-auth/react";
+import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusDot } from "@/components/ui/status-dot";
 
@@ -17,6 +19,46 @@ const tabs = [
 
 const inputClass =
   "h-11 w-full rounded-md border border-input bg-card px-3 text-sm outline-none ring-offset-background focus:ring-2 focus:ring-ring sm:h-9";
+
+const EPOCH_OPTIONS = [
+  { value: 24, label: "24 hours (aligned with AEON Protocol)" },
+  { value: 12, label: "12 hours" },
+  { value: 48, label: "48 hours" },
+];
+
+interface SettingsForm {
+  orgName: string;
+  epochDurationHours: number;
+  guardianSensitivity: string;
+  guardianAutoBlockThreshold: number;
+}
+
+const SETTING_KEYS: Record<keyof SettingsForm, string> = {
+  orgName: "org.name",
+  epochDurationHours: "org.epochDurationHours",
+  guardianSensitivity: "guardian.sensitivity",
+  guardianAutoBlockThreshold: "guardian.autoBlockThreshold",
+};
+
+const DEFAULT_FORM: SettingsForm = {
+  orgName: "",
+  epochDurationHours: 24,
+  guardianSensitivity: "standard",
+  guardianAutoBlockThreshold: 60,
+};
+
+function asString(value: unknown, fallback: string): string {
+  return typeof value === "string" ? value : fallback;
+}
+
+function asNumber(value: unknown, fallback: number): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
+}
 
 interface HealthPayload {
   checkedAt: string;
@@ -65,6 +107,98 @@ function HealthCard({
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState("health");
+  const qc = useQueryClient();
+  const { data: session } = useSession();
+  const canManage = session?.user?.role === "ADMIN";
+
+  const [form, setForm] = useState<SettingsForm | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  const { data: settings, isLoading: settingsLoading } = useQuery<{
+    settings: Record<string, unknown>;
+  }>({
+    queryKey: ["org-settings"],
+    queryFn: async () => {
+      const res = await fetch("/api/settings");
+      if (!res.ok) throw new Error("Failed to load settings");
+      return res.json();
+    },
+  });
+
+  useEffect(() => {
+    if (!settings) return;
+    const map = settings.settings ?? {};
+    setForm({
+      orgName: asString(map[SETTING_KEYS.orgName], DEFAULT_FORM.orgName),
+      epochDurationHours: asNumber(
+        map[SETTING_KEYS.epochDurationHours],
+        DEFAULT_FORM.epochDurationHours
+      ),
+      guardianSensitivity: asString(
+        map[SETTING_KEYS.guardianSensitivity],
+        DEFAULT_FORM.guardianSensitivity
+      ),
+      guardianAutoBlockThreshold: asNumber(
+        map[SETTING_KEYS.guardianAutoBlockThreshold],
+        DEFAULT_FORM.guardianAutoBlockThreshold
+      ),
+    });
+  }, [settings]);
+
+  const save = useMutation({
+    mutationFn: async (fields: Array<keyof SettingsForm>) => {
+      if (!form) throw new Error("Settings not loaded");
+      for (const field of fields) {
+        const res = await fetch("/api/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ key: SETTING_KEYS[field], value: form[field] }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || `Failed to save ${SETTING_KEYS[field]}`);
+        }
+      }
+    },
+    onSuccess: () => {
+      setSaved(true);
+      void qc.invalidateQueries({ queryKey: ["org-settings"] });
+    },
+  });
+
+  function updateForm(patch: Partial<SettingsForm>) {
+    setSaved(false);
+    save.reset();
+    setForm((prev) => (prev ? { ...prev, ...patch } : prev));
+  }
+
+  function saveRow(fields: Array<keyof SettingsForm>) {
+    return (
+      <div className="flex items-center gap-3 pt-1">
+        <Button
+          size="sm"
+          disabled={!canManage || !form || save.isPending}
+          onClick={() => save.mutate(fields)}
+        >
+          {save.isPending ? "Saving…" : "Save"}
+        </Button>
+        {saved && !save.isError && (
+          <span className="text-xs text-muted-foreground">Saved</span>
+        )}
+        {save.isError && (
+          <span className="text-xs text-destructive">
+            {save.error instanceof Error ? save.error.message : "Save failed"}
+          </span>
+        )}
+        {!canManage && (
+          <span className="text-xs text-muted-foreground">
+            Requires ADMIN (settings.manage)
+          </span>
+        )}
+      </div>
+    );
+  }
+
   const { data: health, isLoading } = useQuery<HealthPayload>({
     queryKey: ["integration-health"],
     queryFn: async () => {
@@ -161,63 +295,127 @@ export default function SettingsPage() {
             </div>
           )}
 
-          {activeTab === "general" && (
-            <div className="max-w-lg space-y-4">
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                  Organization Name
-                </label>
-                <input type="text" defaultValue="Adaptive Liquidity Labs" className={inputClass} />
-              </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                  Epoch Duration
-                </label>
-                <select className={inputClass}>
-                  <option>24 hours (aligned with AEON Protocol)</option>
-                  <option>12 hours</option>
-                  <option>48 hours</option>
-                </select>
-              </div>
-            </div>
-          )}
-
-          {activeTab === "brand" && (
-            <div className="max-w-lg space-y-4">
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                  Forbidden Words
-                </label>
-                <textarea
-                  defaultValue={`guaranteed yield\nstablecoin\nget rich\npassive income\nto the moon\n100% safe\nbuy AEON\nsoon\ncoming soon`}
-                  className="min-h-[200px] w-full resize-y rounded-md border border-input bg-card px-3 py-2 text-sm outline-none ring-offset-background focus:ring-2 focus:ring-ring"
-                />
-              </div>
-            </div>
-          )}
-
-          {activeTab === "guardian" && (
-            <div className="max-w-lg space-y-4">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {activeTab === "general" &&
+            (settingsLoading || !form ? (
+              <p className="text-sm text-muted-foreground">Loading settings…</p>
+            ) : (
+              <div className="max-w-lg space-y-4">
                 <div>
-                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                    Sensitivity
+                  <label
+                    htmlFor="org-name"
+                    className="mb-1.5 block text-xs font-medium text-muted-foreground"
+                  >
+                    Organization Name
                   </label>
-                  <select className={inputClass} defaultValue="standard">
-                    <option value="strict">Strict</option>
-                    <option value="standard">Standard</option>
-                    <option value="relaxed">Relaxed</option>
+                  <input
+                    id="org-name"
+                    type="text"
+                    className={inputClass}
+                    disabled={!canManage}
+                    value={form.orgName}
+                    onChange={(e) => updateForm({ orgName: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="epoch-duration"
+                    className="mb-1.5 block text-xs font-medium text-muted-foreground"
+                  >
+                    Epoch Duration
+                  </label>
+                  <select
+                    id="epoch-duration"
+                    className={inputClass}
+                    disabled={!canManage}
+                    value={form.epochDurationHours}
+                    onChange={(e) =>
+                      updateForm({ epochDurationHours: Number(e.target.value) })
+                    }
+                  >
+                    {EPOCH_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
-                <div>
-                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                    Auto-Block Threshold
-                  </label>
-                  <input type="number" defaultValue={60} className={inputClass} />
-                </div>
+                {saveRow(["orgName", "epochDurationHours"])}
               </div>
+            ))}
+
+          {activeTab === "brand" && (
+            <div className="max-w-lg space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Brand voice rules (forbidden words, maturity bands, regulatory phrases) are
+                Guardian rules stored in the database. They are provisioned by{" "}
+                <code className="font-mono text-xs">npm run db:seed-guardian</code> and are not
+                editable from Control Room — editing them here would bypass the policy version
+                that every revision is checked against.
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Every Guardian evaluation is recorded with its policy version. Review outcomes on
+                the{" "}
+                <a href="/audit" className="text-primary hover:underline">
+                  Audit
+                </a>{" "}
+                surface, or run a pre-flight check in{" "}
+                <a href="/studio" className="text-primary hover:underline">
+                  Studio
+                </a>
+                .
+              </p>
             </div>
           )}
+
+          {activeTab === "guardian" &&
+            (settingsLoading || !form ? (
+              <p className="text-sm text-muted-foreground">Loading settings…</p>
+            ) : (
+              <div className="max-w-lg space-y-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div>
+                    <label
+                      htmlFor="guardian-sensitivity"
+                      className="mb-1.5 block text-xs font-medium text-muted-foreground"
+                    >
+                      Sensitivity
+                    </label>
+                    <select
+                      id="guardian-sensitivity"
+                      className={inputClass}
+                      disabled={!canManage}
+                      value={form.guardianSensitivity}
+                      onChange={(e) => updateForm({ guardianSensitivity: e.target.value })}
+                    >
+                      <option value="strict">Strict</option>
+                      <option value="standard">Standard</option>
+                      <option value="relaxed">Relaxed</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="guardian-threshold"
+                      className="mb-1.5 block text-xs font-medium text-muted-foreground"
+                    >
+                      Auto-Block Threshold
+                    </label>
+                    <input
+                      id="guardian-threshold"
+                      type="number"
+                      min={0}
+                      max={100}
+                      className={inputClass}
+                      disabled={!canManage}
+                      value={form.guardianAutoBlockThreshold}
+                      onChange={(e) =>
+                        updateForm({ guardianAutoBlockThreshold: Number(e.target.value) })
+                      }
+                    />
+                  </div>
+                </div>
+                {saveRow(["guardianSensitivity", "guardianAutoBlockThreshold"])}
+              </div>
+            ))}
 
           {activeTab === "agents" && (
             <div className="max-w-lg space-y-4">

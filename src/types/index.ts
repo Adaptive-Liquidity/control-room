@@ -98,7 +98,7 @@ export interface Campaign {
 export interface Agent {
   id: string;
   name: string;
-  type: 'CREATOR' | 'PUBLISHER' | 'ANALYZER' | 'GUARDIAN';
+  type: 'CREATOR' | 'PUBLISHER' | 'ANALYZER' | 'GUARDIAN' | 'RESEARCHER';
   status: 'ONLINE' | 'OFFLINE' | 'BUSY' | 'ERROR';
   config: Record<string, unknown>;
   metrics?: AgentMetrics;

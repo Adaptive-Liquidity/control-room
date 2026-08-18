@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { signOut, useSession } from "next-auth/react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X } from "lucide-react";
+import { LogOut, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { isNavItemActive, moreSections } from "./nav-data";
 
@@ -15,6 +16,15 @@ export function MoreSheet({
   onOpenChange: (open: boolean) => void;
 }) {
   const pathname = usePathname();
+  const { data: session } = useSession();
+  const label = session?.user?.name || session?.user?.email || "Account";
+  const role = session?.user?.role?.toLowerCase() || "signed in";
+  const initials = (session?.user?.name || session?.user?.email || "A")
+    .split(/\s+/)
+    .map((p) => p[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -74,14 +84,27 @@ export function MoreSheet({
             ))}
           </nav>
 
-          <div className="flex items-center gap-2.5 border-t border-border/70 px-4 py-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-secondary text-xs font-semibold text-muted-foreground">
-              AC
+          <div className="border-t border-border/70 px-4 py-3">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-secondary text-xs font-semibold text-muted-foreground">
+                {initials}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[13px] font-medium text-foreground/80">{label}</div>
+                <div className="truncate font-mono text-xs text-muted-foreground/70">{role}</div>
+              </div>
             </div>
-            <div className="min-w-0">
-              <div className="truncate text-[13px] font-medium text-foreground/80">Account</div>
-              <div className="truncate font-mono text-xs text-muted-foreground/70">admin</div>
-            </div>
+            <button
+              type="button"
+              onClick={() => {
+                onOpenChange(false);
+                void signOut({ callbackUrl: "/auth/signin" });
+              }}
+              className="mt-2 flex min-h-[44px] w-full items-center justify-center gap-2 rounded-[6px] border border-border/70 px-2 text-[14px] text-muted-foreground transition-colors hover:bg-secondary/50 hover:text-foreground/80"
+            >
+              <LogOut className="h-4 w-4" strokeWidth={1.75} />
+              Sign out
+            </button>
           </div>
         </Dialog.Content>
       </Dialog.Portal>

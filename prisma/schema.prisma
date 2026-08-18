@@ -533,6 +533,7 @@ enum AgentType {
   PUBLISHER
   ANALYZER
   GUARDIAN
+  RESEARCHER
 }
 
 enum AgentStatus {

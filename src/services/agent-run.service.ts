@@ -2,6 +2,26 @@
 import type { AgentRunStatus, Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 
+const RUN_SUMMARY_SELECT = {
+  status: true,
+  latencyMs: true,
+  tokensIn: true,
+  tokensOut: true,
+  costUsd: true,
+  errorMessage: true,
+  createdAt: true,
+} as const;
+
+type RunSummaryInput = {
+  status: AgentRunStatus;
+  latencyMs: number | null;
+  tokensIn: number | null;
+  tokensOut: number | null;
+  costUsd: number | null;
+  errorMessage: string | null;
+  createdAt: Date;
+};
+
 export class AgentRunService {
   async ingest(payload: {
     eventId: string;
@@ -99,6 +119,38 @@ export class AgentRunService {
     return { run, idempotent: false };
   }
 
+  private summarizeRuns(runs: RunSummaryInput[]) {
+    const success = runs.filter((r) => r.status === 'SUCCESS').length;
+    const failed = runs.filter((r) => r.status === 'FAILED').length;
+    const latencies = runs
+      .map((r) => r.latencyMs)
+      .filter((n): n is number => typeof n === 'number');
+    const avgLatency =
+      latencies.length > 0
+        ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length)
+        : null;
+    const totalCost = runs.reduce((sum, r) => sum + (r.costUsd ?? 0), 0);
+    const totalTokens = runs.reduce((sum, r) => sum + (r.tokensIn ?? 0) + (r.tokensOut ?? 0), 0);
+
+    return {
+      aggregates24h: {
+        runs: runs.length,
+        success,
+        failed,
+        successRate: runs.length ? Math.round((success / runs.length) * 1000) / 10 : null,
+        avgLatencyMs: avgLatency,
+        totalTokens,
+        totalCostUsd: Math.round(totalCost * 1e6) / 1e6,
+      },
+      recentRuns: runs.slice(0, 5).map((r) => ({
+        status: r.status,
+        latencyMs: r.latencyMs,
+        createdAt: r.createdAt,
+        errorMessage: r.errorMessage,
+      })),
+    };
+  }
+
   async enrichAgents() {
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const agents = await prisma.agent.findMany({ orderBy: { updatedAt: 'desc' } });
@@ -112,56 +164,79 @@ export class AgentRunService {
           }),
           prisma.agentRun.findMany({
             where: { agentId: agent.id, createdAt: { gte: since } },
-            select: {
-              status: true,
-              latencyMs: true,
-              tokensIn: true,
-              tokensOut: true,
-              costUsd: true,
-              errorMessage: true,
-              createdAt: true,
-            },
+            orderBy: { createdAt: 'desc' },
+            select: RUN_SUMMARY_SELECT,
           }),
         ]);
 
-        const success = runs24h.filter((r) => r.status === 'SUCCESS').length;
-        const failed = runs24h.filter((r) => r.status === 'FAILED').length;
-        const latencies = runs24h
-          .map((r) => r.latencyMs)
-          .filter((n): n is number => typeof n === 'number');
-        const avgLatency =
-          latencies.length > 0
-            ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length)
-            : null;
-        const totalCost = runs24h.reduce((sum, r) => sum + (r.costUsd ?? 0), 0);
-        const totalTokens = runs24h.reduce(
-          (sum, r) => sum + (r.tokensIn ?? 0) + (r.tokensOut ?? 0),
-          0
-        );
-
         return {
           ...agent,
+          unregistered: false,
           lastRun,
-          aggregates24h: {
-            runs: runs24h.length,
-            success,
-            failed,
-            successRate: runs24h.length ? Math.round((success / runs24h.length) * 1000) / 10 : null,
-            avgLatencyMs: avgLatency,
-            totalTokens,
-            totalCostUsd: Math.round(totalCost * 1e6) / 1e6,
-          },
-          recentRuns: runs24h.slice(0, 5).map((r) => ({
-            status: r.status,
-            latencyMs: r.latencyMs,
-            createdAt: r.createdAt,
-            errorMessage: r.errorMessage,
-          })),
+          runs24h: runs24h.length,
+          ...this.summarizeRuns(runs24h),
         };
       })
     );
 
-    return enriched;
+    const unregistered = await this.unregisteredAgentCards(
+      agents.map((a) => a.name),
+      since
+    );
+
+    return [...enriched, ...unregistered];
+  }
+
+  /**
+   * n8n can emit runs for an `agentName` that was never registered in Control Room.
+   * Those runs would otherwise be invisible on the agents surface, so they are
+   * surfaced as synthetic read-only cards alongside registered agents.
+   */
+  private async unregisteredAgentCards(registeredNames: string[], since: Date) {
+    const registered = new Set(registeredNames);
+
+    const nameRows = await prisma.agentRun.findMany({
+      where: { createdAt: { gte: since }, agentName: { not: null } },
+      distinct: ['agentName'],
+      select: { agentName: true },
+      orderBy: { agentName: 'asc' },
+    });
+
+    const orphanNames = nameRows
+      .map((row) => row.agentName)
+      .filter((name): name is string => name !== null && !registered.has(name));
+
+    return Promise.all(
+      orphanNames.map(async (name) => {
+        const [lastRun, runs24h] = await Promise.all([
+          prisma.agentRun.findFirst({
+            where: { agentName: name },
+            orderBy: { createdAt: 'desc' },
+          }),
+          prisma.agentRun.findMany({
+            where: { agentName: name, createdAt: { gte: since } },
+            orderBy: { createdAt: 'desc' },
+            select: RUN_SUMMARY_SELECT,
+          }),
+        ]);
+
+        return {
+          id: null,
+          name,
+          type: 'UNREGISTERED' as const,
+          status: 'OFFLINE' as const,
+          unregistered: true,
+          config: {},
+          metrics: null,
+          mcpEndpoint: null,
+          mcpStatus: 'DISCONNECTED' as const,
+          lastRunAt: lastRun?.createdAt ?? null,
+          lastRun,
+          runs24h: runs24h.length,
+          ...this.summarizeRuns(runs24h),
+        };
+      })
+    );
   }
 }
 

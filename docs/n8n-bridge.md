@@ -38,7 +38,7 @@ Staging/prod cutover checklist (gates 1–24): [cutover-checklist.md](./cutover-
 
 ## Shared HMAC headers (ingress)
 
-Used by `POST /api/integrations/n8n/drafts`, `publish-receipt`, `agent-runs`, `metrics`, and `attribution`.
+Used by `POST /api/integrations/n8n/drafts`, `publish-receipt`, `agent-runs`, `metrics`, `attribution`, and `policy-check`.
 
 | Header | Value |
 |---|---|
@@ -46,7 +46,36 @@ Used by `POST /api/integrations/n8n/drafts`, `publish-receipt`, `agent-runs`, `m
 | `X-N8N-Signature` | `hex(HMAC_SHA256(N8N_INGRESS_SECRET, timestamp + "." + rawBody))` — optional `sha256=` prefix |
 | `Content-Type` | `application/json` |
 
-Timestamps outside ±5 minutes are rejected. Each `eventId` may be consumed once across bridge jobs and publish receipts (except draft idempotency by `externalDraftId`, see below).
+Timestamps outside ±5 minutes are rejected. Each `eventId` may be consumed once across bridge jobs and publish receipts (except draft idempotency by `externalDraftId`, see below). Policy-check does **not** consume `eventId`.
+
+## 0. Policy check — `POST /api/integrations/n8n/policy-check`
+
+Read-only pre-spend gate. Same ingress HMAC. Does not create content or burn `eventId`.
+
+### Request body
+
+```json
+{
+  "schemaVersion": "1",
+  "campaignId": "optional_campaign_cuid"
+}
+```
+
+Omit `campaignId` (or leave unset) for an unscoped allow response — useful for smoke tests. When `campaignId` is set, Control Room evaluates campaign `emergencyStopped` / `autoGenDisabled` / pause / `dailyContentLimit`.
+
+### Response (`200`)
+
+```json
+{
+  "allowed": true,
+  "reason": null,
+  "remainingContentToday": 12
+}
+```
+
+- `allowed: false` → n8n must stop before LLM spend (fail closed).
+- `404` → unknown campaign.
+- Draft ingress **also** enforces the same campaign rules independently (409) so a skipped policy-check cannot bypass kill switches.
 
 ## 1. Draft ingress — `POST /api/integrations/n8n/drafts`
 
@@ -168,18 +197,55 @@ Stale `revisionId` (≠ `Content.currentRevisionId`) → `409`. Edits that Guard
 
 ---
 
-## Workflow templates (MKT-03 / 04 / 05)
+## Workflow templates (MKT-02 / 03 / 04 / 05 / 06 / 09)
 
-These are n8n design templates. Implement them in n8n; Control Room only exposes the contracts above.
+Versioned exports (re-importable into n8n):
+
+| Workflow | Live id | Repo path |
+|---|---|---|
+| Staged Agentic Marketing (MKT-02→05 + MKT-09) | [`Mr2NsTTTVKvuGZKa`](https://agentsea.app.n8n.cloud/workflow/Mr2NsTTTVKvuGZKa) | [`n8n/workflows/mkt-03-04-05.json`](../n8n/workflows/mkt-03-04-05.json) |
+| Metrics / Attribution stub (MKT-06) | [`2lYDNN28W8gMrGtC`](https://agentsea.app.n8n.cloud/workflow/2lYDNN28W8gMrGtC) | [`n8n/workflows/mkt-06-metrics.json`](../n8n/workflows/mkt-06-metrics.json) |
+
+**Secrets in n8n (never in Vercel for LLM/social):**
+
+| Credential | Used for |
+|---|---|
+| Control Room - Ingress HMAC (`crypto`) | `N8N_INGRESS_SECRET` — drafts, receipts, agent-runs, metrics, attribution, policy-check |
+| OpenAI account | MKT-02 Researcher (`gpt-4o-mini`), MKT-03 Creator (`gpt-4o`) |
+| (optional) Header Auth / resume | Prefer Control Room signing resume with `N8N_RESUME_SECRET`; keep **separate** from ingress |
+
+**Canonical `agentName` strings** (must match seeded `Agent.name` via `npm run db:seed-agents`):
+
+`creator` · `publisher` · `analyzer` · `guardian` · `researcher`
+
+### Live node map — MKT-02 → 05 + MKT-09
+
+```text
+Manual Trigger
+→ Config Base URL (https://hq.adaptiveliquidity.com)
+→ Build / HMAC / POST policy-check → Assert allowed
+→ MKT-02 Researcher LLM (OpenAI) → Parse Research JSON
+→ MKT-03 Creator LLM (OpenAI) → Parse Creator JSON
+→ MKT-09 AgentRun RUNNING (HMAC → /agent-runs)
+→ Generate eventId + externalDraftId → Normalize draft → HMAC → POST /drafts
+→ MKT-09 AgentRun WAITING_APPROVAL
+→ MKT-04 Wait (24h) → Parse decision → Decision Switch
+   APPROVED → Validate → Channel route → (NoOp channel) → Staging Mock Publisher
+            → Build SUCCESS|FAILED receipt → HMAC → POST /publish-receipt
+            → MKT-09 AgentRun SUCCESS (agentName=publisher)
+   REJECTED / REVISION_REQUESTED / MALFORMED → stop (no publish)
+```
+
+### MKT-02 — Researcher
+
+Optional stage feeding Creator. Outputs `researchBrief` JSON consumed by the Creator prompt. Uses `gpt-4o-mini`. Seed `researcher` agent if you also emit AgentRuns for this stage.
 
 ### MKT-03 — Content Generation
 
 ```text
-approved brief
-→ research package
-→ Creator (LLM in n8n)
-→ Channel Adapter
-→ draft object(s)
+policy-check (allowed)
+→ research package (MKT-02)
+→ Creator (LLM in n8n) → structured title/body/type/channel
 → POST /api/integrations/n8n/drafts  (HMAC + resumeUrl from Wait)
 → WAIT (n8n Wait / webhook-waiting)
 ```
@@ -189,6 +255,7 @@ Notes:
 - Use a stable `externalDraftId` so retries are idempotent.
 - Set `resumeExpiresAt` to the Wait node expiry (or sooner).
 - Do not put LLM provider keys in Control Room env.
+- Set `campaignId` in the policy-check Code node to enforce pause/stop/limits for a real campaign.
 
 ### MKT-04 — Human Approval Gate
 
@@ -217,8 +284,8 @@ Notes:
 ```text
 approved revision payload from resume
 → platform formatter
-→ platform API (X / LinkedIn / … credentials in n8n)
-→ POST /api/integrations/n8n/publish-receipt
+→ platform API (X / LinkedIn / … credentials in n8n)  — today: Staging Mock Publisher
+→ POST /api/integrations/n8n/publish-receipt  (status SUCCESS | FAILED — never "PUBLISHED")
 → Control Room sets PUBLISHED only on SUCCESS + matching contentHash
 ```
 
@@ -226,11 +293,40 @@ Notes:
 
 - Send the exact `revisionId` + `contentHash` from the resume body.
 - On platform failure, send `status: FAILED` receipt; leave content `APPROVED` for retry.
+- Keep mock publisher until channel credentials exist.
 
-Related (documented elsewhere / separate ingress):
+### MKT-06 — Metrics / Attribution
 
-- **MKT-06** metrics → `POST /api/integrations/n8n/metrics`
-- **MKT-09** execution health → `POST /api/integrations/n8n/agent-runs`
+Schedule (every 6h) + manual trigger → HMAC → `POST /api/integrations/n8n/metrics` and `/attribution`. Current export posts **stub** snapshots so Analytics/Attribution leave empty-state; replace Build bodies with real platform pulls when APIs are connected.
+
+### MKT-09 — AgentRun telemetry
+
+`POST /api/integrations/n8n/agent-runs` with ingress HMAC. Emit at boundaries:
+
+| Status | When | `agentName` |
+|---|---|---|
+| `RUNNING` | After Creator parse | `creator` |
+| `WAITING_APPROVAL` | After draft handoff, before Wait | `creator` |
+| `SUCCESS` | After publish-receipt | `publisher` |
+| `FAILED` | (optional) publisher/error path | `publisher` / `creator` |
+
+Always include `modelAlias`, `promptVersion`, and `latencyMs` when available.
+
+Example:
+
+```json
+{
+  "schemaVersion": "1",
+  "eventId": "ar-running-…",
+  "workflowId": "Mr2NsTTTVKvuGZKa",
+  "executionId": "…",
+  "status": "RUNNING",
+  "agentName": "creator",
+  "modelAlias": "gpt-4o",
+  "promptVersion": "mkt-03-v1",
+  "startedAt": "2026-08-18T15:00:00.000Z"
+}
+```
 
 ---
 
