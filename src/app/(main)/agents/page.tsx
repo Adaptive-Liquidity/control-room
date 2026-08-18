@@ -1,12 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatusDot } from "@/components/ui/status-dot";
 
 interface AgentRow {
-  id: string;
+  id: string | null;
   name: string;
   type: string;
   status: string;
@@ -97,11 +98,19 @@ export default function AgentsPage() {
             },
           ];
           return (
-            <Card key={agent.id}>
+            <Card key={agent.id ?? agent.name}>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
                 <div className="flex items-center gap-2.5">
                   <StatusDot status={statusDot(agent.status)} />
-                  <CardTitle>{agent.name}</CardTitle>
+                  {agent.id ? (
+                    <CardTitle>
+                      <Link href={`/agents/${agent.id}`} className="hover:text-primary">
+                        {agent.name}
+                      </Link>
+                    </CardTitle>
+                  ) : (
+                    <CardTitle>{agent.name}</CardTitle>
+                  )}
                 </div>
                 <Badge variant={statusVariant(agent.status)}>{agent.status}</Badge>
               </CardHeader>
@@ -138,6 +147,14 @@ export default function AgentsPage() {
                     ))
                   )}
                 </div>
+                {agent.id && (
+                  <Link
+                    href={`/agents/${agent.id}`}
+                    className="mt-3 inline-block text-xs text-primary hover:underline"
+                  >
+                    View all runs →
+                  </Link>
+                )}
               </CardContent>
             </Card>
           );
@@ -152,7 +169,7 @@ export default function AgentsPage() {
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             {agents.map((agent) => (
               <div
-                key={`mcp-${agent.id}`}
+                key={`mcp-${agent.id ?? agent.name}`}
                 className={`flex items-center gap-3 rounded-md border p-3 ${
                   agent.mcpStatus === "CONNECTED" ? "border-border" : "border-border opacity-60"
                 }`}

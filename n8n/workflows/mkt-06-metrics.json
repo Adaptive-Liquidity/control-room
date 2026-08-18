@@ -1,0 +1,359 @@
+{
+  "id": "2lYDNN28W8gMrGtC",
+  "name": "AEON Control Room — MKT-06 Metrics/Attribution",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true
+  },
+  "nodes": [
+    {
+      "id": "68bb149b-89c4-400c-b51a-4a9a4d03b900",
+      "name": "MKT-06 Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "d7a28e48-bdd5-4797-8da3-cb04064b2f6d",
+      "name": "Config Base URL",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        240,
+        400
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "controlRoomBaseUrl",
+              "name": "controlRoomBaseUrl",
+              "type": "string",
+              "value": "https://hq.adaptiveliquidity.com"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "94b4684d-32cb-485a-b0a5-b8ca0019b575",
+      "name": "Build Metric + Attribution Bodies",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        400
+      ],
+      "parameters": {
+        "jsCode": "const base = $('Config Base URL').item.json.controlRoomBaseUrl;\nconst observedAt = new Date().toISOString();\nconst metricEventId = 'metric-demo-' + $execution.id + '-' + Date.now();\nconst attrEventId = 'attr-demo-' + $execution.id + '-' + Date.now();\nconst metricBody = {\n  schemaVersion: '1',\n  eventId: metricEventId,\n  channel: 'TWITTER',\n  observedAt,\n  impressions: 100,\n  engagements: 12,\n  clicks: 4,\n  reach: 80,\n  metadata: { source: 'mkt-06-stub', note: 'Replace with real platform metrics' }\n};\nconst attrBody = {\n  schemaVersion: '1',\n  eventId: attrEventId,\n  kind: 'CLICK',\n  occurredAt: observedAt,\n  value: 1,\n  metadata: { source: 'mkt-06-stub' }\n};\nconst ts = Math.floor(Date.now() / 1000).toString();\nconst metricRaw = JSON.stringify(metricBody);\nconst attrRaw = JSON.stringify(attrBody);\nreturn [{ json: {\n  controlRoomBaseUrl: base,\n  metric: { timestamp: ts, rawBody: metricRaw, hmacMessage: ts + '.' + metricRaw },\n  attr: { timestamp: ts, rawBody: attrRaw, hmacMessage: ts + '.' + attrRaw }\n} }];"
+      }
+    },
+    {
+      "id": "c2700619-2255-4792-93ac-436475bb15c2",
+      "name": "HMAC Sign Metric",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 2,
+      "position": [
+        720,
+        300
+      ],
+      "parameters": {
+        "action": "hmac",
+        "type": "SHA256",
+        "encoding": "hex",
+        "value": "={{ $json.metric.hmacMessage }}",
+        "dataPropertyName": "metricSignature"
+      },
+      "credentials": {
+        "crypto": {
+          "id": "YIlsh8NApQILFzVQ",
+          "name": "Control Room - Ingress HMAC"
+        }
+      }
+    },
+    {
+      "id": "ab1364a2-c36c-4c26-acf1-a601faabbc1b",
+      "name": "POST Metrics Ingress",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        960,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config Base URL').item.json.controlRoomBaseUrl }}/api/integrations/n8n/metrics",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Timestamp",
+              "value": "={{ $json.metric.timestamp }}"
+            },
+            {
+              "name": "X-N8N-Signature",
+              "value": "={{ $json.metricSignature }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.metric.rawBody }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "a353f40f-6269-4e7d-84cf-c1570c802f28",
+      "name": "Assert Metrics HTTP OK",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1080,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nconst status = j.statusCode ?? j.status ?? 0;\nif (status < 200 || status >= 300) {\n  throw new Error('Metrics ingress failed with HTTP ' + status);\n}\nreturn [{ json: j }];"
+      }
+    },
+    {
+      "id": "ce51a99b-4017-453e-8095-1cf379a06ddb",
+      "name": "Restore Attribution Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        400
+      ],
+      "parameters": {
+        "jsCode": "const built = $('Build Metric + Attribution Bodies').item.json;\nconst ts = Math.floor(Date.now() / 1000).toString();\nreturn [{ json: {\n  ...built,\n  attr: {\n    ...built.attr,\n    timestamp: ts,\n    hmacMessage: ts + '.' + built.attr.rawBody\n  }\n} }];"
+      }
+    },
+    {
+      "id": "dfdbf323-7221-4de8-bedc-42bf7d310ea3",
+      "name": "HMAC Sign Attribution",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        400
+      ],
+      "parameters": {
+        "action": "hmac",
+        "type": "SHA256",
+        "encoding": "hex",
+        "value": "={{ $json.attr.hmacMessage }}",
+        "dataPropertyName": "attrSignature"
+      },
+      "credentials": {
+        "crypto": {
+          "id": "YIlsh8NApQILFzVQ",
+          "name": "Control Room - Ingress HMAC"
+        }
+      }
+    },
+    {
+      "id": "5fe6ceaf-fa73-43c4-a082-110c1f3bd7ff",
+      "name": "POST Attribution Ingress",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1680,
+        400
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config Base URL').item.json.controlRoomBaseUrl }}/api/integrations/n8n/attribution",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Timestamp",
+              "value": "={{ $json.attr.timestamp }}"
+            },
+            {
+              "name": "X-N8N-Signature",
+              "value": "={{ $json.attrSignature }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.attr.rawBody }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "85aca90a-19a5-47bd-82d4-58ea35d5987d",
+      "name": "Assert Attribution HTTP OK",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1800,
+        400
+      ],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nconst status = j.statusCode ?? j.status ?? 0;\nif (status < 200 || status >= 300) {\n  throw new Error('Attribution ingress failed with HTTP ' + status);\n}\nreturn [{ json: j }];"
+      }
+    },
+    {
+      "id": "034bb7d0-97a4-4ada-8543-0ab37e527baf",
+      "name": "MKT-06 Every 6h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        520
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "connections": {
+    "MKT-06 Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config Base URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config Base URL": {
+      "main": [
+        [
+          {
+            "node": "Build Metric + Attribution Bodies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Metric + Attribution Bodies": {
+      "main": [
+        [
+          {
+            "node": "HMAC Sign Metric",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HMAC Sign Metric": {
+      "main": [
+        [
+          {
+            "node": "POST Metrics Ingress",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST Metrics Ingress": {
+      "main": [
+        [
+          {
+            "node": "Assert Metrics HTTP OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assert Metrics HTTP OK": {
+      "main": [
+        [
+          {
+            "node": "Restore Attribution Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restore Attribution Payload": {
+      "main": [
+        [
+          {
+            "node": "HMAC Sign Attribution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HMAC Sign Attribution": {
+      "main": [
+        [
+          {
+            "node": "POST Attribution Ingress",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST Attribution Ingress": {
+      "main": [
+        [
+          {
+            "node": "Assert Attribution HTTP OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-06 Every 6h": {
+      "main": [
+        [
+          {
+            "node": "Config Base URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp"
+  },
+  "pinData": {},
+  "versionId": "8daf5009-59d9-4ecd-88fe-f03e25fcf0b5"
+}

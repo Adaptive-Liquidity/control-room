@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { encrypt } from '@/lib/crypto';
+import { evaluateCampaignPolicy, CampaignPolicyRejectedError } from '@/lib/n8n/campaign-policy';
 import { n8nDraftIngressSchema } from '@/lib/n8n/contracts';
 import {
   SignatureError,
@@ -54,6 +55,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (payload.campaignId) {
+      const decision = await evaluateCampaignPolicy(payload.campaignId);
+      if (!decision) {
+        return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
+      }
+      if (!decision.allowed) {
+        return NextResponse.json(
+          {
+            error: `Campaign policy rejected this draft: ${decision.reason}`,
+            reason: decision.reason,
+          },
+          { status: 409 }
+        );
+      }
+    }
+
     await assertEventIdUnused(payload.eventId);
 
     const authorId = await resolveServiceAuthorId();
@@ -70,6 +87,16 @@ export async function POST(req: NextRequest) {
     const resumeUrlEncrypted = encrypt(payload.resumeUrl);
 
     const content = await prisma.$transaction(async (tx) => {
+      if (payload.campaignId) {
+        const decision = await evaluateCampaignPolicy(payload.campaignId, tx);
+        if (!decision) {
+          throw new Error('Campaign not found');
+        }
+        if (!decision.allowed) {
+          throw new CampaignPolicyRejectedError(decision.reason ?? 'daily_content_limit');
+        }
+      }
+
       const created = await tx.content.create({
         data: {
           title: payload.content.title,
@@ -157,6 +184,18 @@ export async function POST(req: NextRequest) {
     }
     if (error instanceof SyntaxError) {
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+    }
+    if (error instanceof CampaignPolicyRejectedError) {
+      return NextResponse.json(
+        {
+          error: `Campaign policy rejected this draft: ${error.reason}`,
+          reason: error.reason,
+        },
+        { status: 409 }
+      );
+    }
+    if (error instanceof Error && error.message === 'Campaign not found') {
+      return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
     }
     console.error('POST /api/integrations/n8n/drafts error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

@@ -8,6 +8,16 @@ jest.mock("next/navigation", () => ({
   usePathname: () => "/settings",
 }));
 
+jest.mock("next-auth/react", () => ({
+  useSession: () => ({
+    data: {
+      user: { id: "u1", name: "Ops Admin", email: "admin@aeon.test", role: "ADMIN" },
+    },
+    status: "authenticated",
+  }),
+  signOut: jest.fn(),
+}));
+
 describe("MoreSheet", () => {
   it("renders remaining destinations when open", () => {
     render(<MoreSheet open onOpenChange={() => {}} />);

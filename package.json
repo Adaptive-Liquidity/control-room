@@ -14,6 +14,7 @@
     "db:studio": "prisma studio",
     "db:seed": "echo \"DEPRECATED: use npm run db:seed-guardian; staging/prod: npm run db:bootstrap-admin; local E2E: npm run db:ensure-dev-users\" && exit 1",
     "db:seed-guardian": "tsx scripts/seed-guardian-rules.ts",
+    "db:seed-agents": "tsx scripts/seed-agents.ts",
     "db:bootstrap-admin": "tsx scripts/bootstrap-admin.ts",
     "db:ensure-dev-users": "tsx scripts/ensure-dev-users.ts",
     "agents:start": "echo \"DEPRECATED: agent execution lives in n8n; Control Room receives AgentRun telemetry via HMAC ingress\" && exit 1",

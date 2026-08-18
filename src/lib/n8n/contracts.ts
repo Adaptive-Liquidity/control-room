@@ -33,6 +33,13 @@ export const n8nDraftIngressSchema = z.object({
 
 export type N8nDraftIngress = z.infer<typeof n8nDraftIngressSchema>;
 
+export const n8nPolicyCheckSchema = z.object({
+  schemaVersion: z.string().min(1),
+  campaignId: z.string().optional(),
+});
+
+export type N8nPolicyCheck = z.infer<typeof n8nPolicyCheckSchema>;
+
 export const n8nPublishReceiptSchema = z.object({
   schemaVersion: z.string().min(1),
   eventId: z.string().min(1).max(200),

@@ -1,0 +1,1679 @@
+{
+  "id": "Mr2NsTTTVKvuGZKa",
+  "name": "AEON Control Room — Staged Agentic Marketing (MKT-03/04/05)",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "d9800a77-10a5-4094-9e64-feadb72cd41d",
+      "name": "MKT-03 ▶ Manual Trigger (Staging)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        768
+      ],
+      "disabled": false
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "controlRoomBaseUrl",
+              "name": "controlRoomBaseUrl",
+              "type": "string",
+              "value": "https://hq.adaptiveliquidity.com"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c97a3659-d0d5-4150-917e-df147ef40ccb",
+      "name": "Config Base URL",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        224,
+        768
+      ],
+      "disabled": false
+    },
+    {
+      "parameters": {
+        "action": "generate",
+        "dataPropertyName": "eventId"
+      },
+      "id": "0aa4c3e1-3e83-4b60-9c5f-a3ea0a58491e",
+      "name": "MKT-03 ▪ Generate eventId (UUID)",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 2,
+      "position": [
+        896,
+        768
+      ],
+      "disabled": false
+    },
+    {
+      "parameters": {
+        "action": "generate",
+        "dataPropertyName": "externalDraftId"
+      },
+      "id": "2328cf9f-97e8-42cf-9d0e-9fd86bfc7949",
+      "name": "MKT-03 ▪ Generate externalDraftId (UUID)",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        768
+      ],
+      "disabled": false
+    },
+    {
+      "parameters": {
+        "jsCode": "const c = $input.first().json;\nconst timestamp = Math.floor(Date.now() / 1000).toString();\nconst campaignId = (c.campaignId === undefined || c.campaignId === '') ? null : c.campaignId;\nconst content = {\n  title: c.title,\n  body: c.body,\n  type: c.type,\n  channel: c.channel\n};\nconst bodyObj = {\n  schemaVersion: '1',\n  eventId: c.eventId,\n  externalDraftId: c.externalDraftId,\n  workflowId: $workflow.id,\n  executionId: $execution.id,\n  resumeUrl: $execution.resumeUrl,\n  content: content,\n  metadata: { agent: 'creator', promptVersion: 'mkt-03-v1' }\n};\nif (campaignId) bodyObj.campaignId = campaignId;\n// Serialize ONCE. rawBody is the exact bytes signed and transmitted.\nconst rawBody = JSON.stringify(bodyObj);\nreturn [{ json: {\n  eventId: c.eventId,\n  externalDraftId: c.externalDraftId,\n  timestamp: timestamp,\n  rawBody: rawBody,\n  hmacMessage: timestamp + '.' + rawBody,\n  content: content,\n  campaignId: campaignId\n} }];"
+      },
+      "id": "5fa1c2b5-a0f3-43ab-9e41-f6aa761364ed",
+      "name": "MKT-03 ▪ Normalize + Canonical Raw Body",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        768
+      ],
+      "disabled": false
+    },
+    {
+      "parameters": {
+        "action": "hmac",
+        "value": "={{ $json.hmacMessage }}",
+        "dataPropertyName": "signature"
+      },
+      "id": "c1650976-a42f-4255-8174-c4c26acc9d82",
+      "name": "MKT-03 ▪ HMAC Sign Draft (N8N_INGRESS_SECRET)",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        768
+      ],
+      "disabled": false,
+      "credentials": {
+        "crypto": {
+          "id": "YIlsh8NApQILFzVQ",
+          "name": "Control Room - Ingress HMAC"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config Base URL').item.json.controlRoomBaseUrl }}/api/integrations/n8n/drafts",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Timestamp",
+              "value": "={{ $json.timestamp }}"
+            },
+            {
+              "name": "X-N8N-Signature",
+              "value": "={{ $json.signature }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.rawBody }}",
+        "options": {}
+      },
+      "id": "ac52c24b-1090-414a-b506-bdc1be9cb284",
+      "name": "MKT-03 ▪ Control Room Draft Handoff",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1792,
+        768
+      ],
+      "disabled": false
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "httpMethod": "POST",
+        "limitWaitTime": true,
+        "resumeAmount": 24,
+        "options": {}
+      },
+      "id": "88a1307e-c125-411d-ab79-a6bea4574f50",
+      "name": "MKT-04 ⏸ Wait for Human Approval (24h max)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2016,
+        768
+      ],
+      "webhookId": "cfc84545-31cd-4733-9086-4f64dd07b89f",
+      "disabled": false
+    },
+    {
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nconst p = (j && j.body) ? j.body : j;\nreturn [{ json: {\n  schemaVersion: p.schemaVersion,\n  decision: p.decision,\n  contentId: p.contentId,\n  revisionId: p.revisionId,\n  contentHash: p.contentHash,\n  title: p.title,\n  body: p.body,\n  channel: p.channel,\n  campaignId: (p.campaignId === undefined || p.campaignId === \"\") ? null : p.campaignId,\n  assets: p.assets ? p.assets : [],\n  guardian: p.guardian ? p.guardian : null,\n  review: p.review ? p.review : null\n} }];"
+      },
+      "id": "80db2e6d-35cd-4b8f-a977-e4dae04c5711",
+      "name": "MKT-04 ▪ Parse Approval Decision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        768
+      ],
+      "disabled": false
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.decision }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "APPROVED"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "APPROVED"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.decision }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "REJECTED"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "REJECTED"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.decision }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "REVISION_REQUESTED"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "REVISION_REQUESTED"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "MALFORMED"
+        }
+      },
+      "id": "890682e6-0b50-41c8-9289-2f070c670dfe",
+      "name": "MKT-04 ⛖ Decision Switch",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        2464,
+        736
+      ],
+      "disabled": false
+    },
+    {
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nconst required = ['contentId','revisionId','contentHash','title','body','channel'];\nconst missing = [];\nfor (const k of required) {\n  if (j[k] === undefined || j[k] === null || j[k] === '') missing.push(k);\n}\nif (missing.length) {\n  throw new Error('APPROVED payload missing required fields: ' + missing.join(', ') + '. Failing closed; nothing published.');\n}\n// Pass through the EXACT human-approved revision. No AI/rewrite allowed here.\nreturn [{ json: j }];"
+      },
+      "id": "ff2c0adc-fb55-47e3-a3b6-898167d4ebb4",
+      "name": "Validate Approved Revision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2688,
+        480
+      ],
+      "disabled": false
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.channel }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "TWITTER"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "TWITTER"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.channel }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "LINKEDIN"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "LINKEDIN"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.channel }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "DISCORD"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "DISCORD"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.channel }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "EMAIL"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "EMAIL"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.channel }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "BLOG"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "BLOG"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "UNKNOWN"
+        }
+      },
+      "id": "b8af39b7-a19f-48df-9b99-a466838fa61b",
+      "name": "MKT-05 ⛖ Route by Channel",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        2912,
+        416
+      ],
+      "disabled": false
+    },
+    {
+      "parameters": {},
+      "id": "e6be17e3-7b98-4d8a-a2e0-5b09a82af8b7",
+      "name": "MKT-05 ▪ TWITTER Publisher (PROD — attach credential)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        3136,
+        0
+      ],
+      "disabled": false
+    },
+    {
+      "parameters": {
+        "jsCode": "const a = $('Validate Approved Revision').item.json;\nconst chan = a.channel;\nconst fakeId = 'TEST-' + chan + '-' + $execution.id + '-' + Math.floor(Math.random() * 1000000);\nreturn [{ json: {\n  __staging: true,\n  channel: chan,\n  platformPostId: fakeId,\n  platformUrl: 'https://staging.mock.local/' + String(chan).toLowerCase() + '/' + fakeId,\n  publishedAt: new Date().toISOString(),\n  note: 'STAGING MOCK — simulated publish, NOT a real post'\n} }];"
+      },
+      "id": "260e7880-994b-4b2a-9406-0203ee4475d1",
+      "name": "Staging Mock Publisher",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3360,
+        288
+      ],
+      "disabled": false,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const a = $('Validate Approved Revision').item.json;\nconst pub = $input.first().json;\nreturn [{ json: {\n  __receiptStatus: 'PUBLISHED',\n  contentId: a.contentId,\n  revisionId: a.revisionId,\n  contentHash: a.contentHash,\n  channel: a.channel,\n  platformPostId: pub.platformPostId,\n  platformUrl: pub.platformUrl,\n  publishedAt: pub.publishedAt\n} }];"
+      },
+      "id": "e7165ab7-de69-40de-9980-3be9c0c0bdd5",
+      "name": "MKT-05 ▪ Build PUBLISHED Receipt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3584,
+        288
+      ],
+      "disabled": false
+    },
+    {
+      "parameters": {
+        "action": "generate",
+        "dataPropertyName": "eventId"
+      },
+      "id": "1451ea75-a58c-4553-9301-c1ccc0b925eb",
+      "name": "MKT-05 ▪ Generate Receipt eventId (UUID)",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 2,
+      "position": [
+        3808,
+        288
+      ],
+      "disabled": false
+    },
+    {
+      "parameters": {
+        "jsCode": "const a = $('Validate Approved Revision').item.json;\nconst e = $input.first().json;\nconst rawMsg = (e && e.error && (e.error.message || e.error)) ? (e.error.message || e.error) : 'Publish failed';\nconst msg = String(rawMsg).slice(0, 300);\nreturn [{ json: {\n  __receiptStatus: 'FAILED',\n  contentId: a.contentId,\n  revisionId: a.revisionId,\n  contentHash: a.contentHash,\n  channel: a.channel,\n  errorCode: 'PUBLISH_FAILED',\n  errorMessage: msg\n} }];"
+      },
+      "id": "3210eb0f-8ab6-4855-9623-8f6488823f01",
+      "name": "MKT-05 ▪ Build FAILED Receipt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3584,
+        480
+      ],
+      "disabled": false
+    },
+    {
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nconst timestamp = Math.floor(Date.now() / 1000).toString();\nconst base = {\n  schemaVersion: '1',\n  eventId: j.eventId,\n  contentId: j.contentId,\n  revisionId: j.revisionId,\n  contentHash: j.contentHash,\n  executionId: $execution.id,\n  channel: j.channel\n};\nlet bodyObj;\nif (j.__receiptStatus === 'PUBLISHED') {\n  // Control Room contract: SUCCESS | FAILED (SUCCESS flips Content.status to PUBLISHED)\n  bodyObj = Object.assign({}, base, { status: 'SUCCESS', platformPostId: j.platformPostId, platformUrl: j.platformUrl, publishedAt: j.publishedAt });\n} else {\n  bodyObj = Object.assign({}, base, { status: 'FAILED', errorCode: j.errorCode, errorMessage: j.errorMessage });\n}\nconst rawBody = JSON.stringify(bodyObj);\nreturn [{ json: {\n  timestamp: timestamp,\n  rawBody: rawBody,\n  hmacMessage: timestamp + '.' + rawBody\n} }];"
+      },
+      "id": "45620c46-e454-4d57-8167-567e2f81f670",
+      "name": "MKT-05 ▪ Normalize + Canonical Receipt Body",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4032,
+        288
+      ],
+      "disabled": false
+    },
+    {
+      "parameters": {
+        "action": "hmac",
+        "value": "={{ $json.hmacMessage }}",
+        "dataPropertyName": "signature"
+      },
+      "id": "43e3e64e-532d-4c9e-aea4-d46702ead1e3",
+      "name": "MKT-05 ▪ HMAC Sign Receipt (N8N_INGRESS_SECRET)",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 2,
+      "position": [
+        4256,
+        288
+      ],
+      "disabled": false,
+      "credentials": {
+        "crypto": {
+          "id": "YIlsh8NApQILFzVQ",
+          "name": "Control Room - Ingress HMAC"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config Base URL').item.json.controlRoomBaseUrl }}/api/integrations/n8n/publish-receipt",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Timestamp",
+              "value": "={{ $json.timestamp }}"
+            },
+            {
+              "name": "X-N8N-Signature",
+              "value": "={{ $json.signature }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.rawBody }}",
+        "options": {}
+      },
+      "id": "37c07f06-8ba7-48cd-be7e-d45fb31d32f1",
+      "name": "MKT-05 ▪ Control Room Publish Receipt",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        4480,
+        288
+      ],
+      "disabled": false
+    },
+    {
+      "parameters": {},
+      "id": "d520f177-f64f-429b-ba50-5a8911ef2af0",
+      "name": "MKT-05 ▪ LINKEDIN Publisher (PROD — attach credential)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        3136,
+        192
+      ],
+      "disabled": false
+    },
+    {
+      "parameters": {},
+      "id": "5b0b1ca5-6dd4-4e2d-8446-ebdf32f8ca50",
+      "name": "MKT-05 ▪ DISCORD Publisher (PROD — attach credential)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        3136,
+        384
+      ],
+      "disabled": false
+    },
+    {
+      "parameters": {},
+      "id": "d6794ff0-9d98-4463-9c4e-8be0b9015f42",
+      "name": "MKT-05 ▪ EMAIL Publisher (PROD — attach credential)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        3136,
+        576
+      ],
+      "disabled": false
+    },
+    {
+      "parameters": {},
+      "id": "8dd2efa9-effb-4286-ad01-d8b34906ac4b",
+      "name": "MKT-05 ▪ BLOG Publisher (PROD — attach credential)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        3136,
+        864
+      ],
+      "disabled": false
+    },
+    {
+      "parameters": {
+        "errorMessage": "Unknown publish channel — failing closed. No content published."
+      },
+      "id": "4977fc90-9f5d-4fb0-b7eb-e908694797d0",
+      "name": "MKT-05 ✖ Unknown Channel — Fail Closed",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        3136,
+        1056
+      ],
+      "disabled": false
+    },
+    {
+      "parameters": {},
+      "id": "22cf2ba8-6e43-4d7c-90fd-c8550dca0451",
+      "name": "MKT-04 ■ REJECTED — Stop (no publish)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2688,
+        672
+      ],
+      "disabled": false
+    },
+    {
+      "parameters": {},
+      "id": "539788cb-0489-4f54-af57-f53e68f16e81",
+      "name": "MKT-04 ■ REVISION_REQUESTED — Revision Path (no publish)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2688,
+        864
+      ],
+      "disabled": false
+    },
+    {
+      "parameters": {
+        "errorMessage": "Malformed or unknown approval decision — failing closed. No content published."
+      },
+      "id": "a3585c6f-cf9a-4f70-b41b-017dde2d979c",
+      "name": "MKT-04 ✖ Malformed/Unknown Decision — Fail Closed",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        2688,
+        1056
+      ],
+      "disabled": false
+    },
+    {
+      "parameters": {
+        "content": "## ⚙ CONFIGURATION\n- **CONTROL_ROOM_BASE_URL**: enter it in the **Config Base URL** node (Value field). No trailing slash.\n  It is reused for both `/api/integrations/n8n/drafts` and `/api/integrations/n8n/publish-receipt`.\n- **Staging is the default.** No real social publishing happens until you attach production credentials on the per-channel publisher nodes.",
+        "height": 220,
+        "width": 460,
+        "color": 4
+      },
+      "id": "a54c4fad-5c57-4b8f-8e6a-b59a50dccf26",
+      "name": "Sticky Note 25071257",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        624,
+        1008
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "content": "## 🔐 N8N_INGRESS_SECRET + HMAC\nConfigure the **N8N_INGRESS_SECRET** value inside the **Crypto credential** attached to the two \"HMAC Sign\" nodes (draft + receipt).\nThe secret lives only in the credential — never in parameters, output, logs or the HTTP body.\n\n**Signature spec (identical for draft & receipt):**\nmessage = timestamp + \".\" + rawBody\nsignature = lowercase hex HMAC-SHA256(N8N_INGRESS_SECRET, message)\nrawBody is serialized ONCE and the exact bytes are signed and transmitted — never re-serialized.\nHeaders sent: Content-Type: application/json, X-N8N-Timestamp, X-N8N-Signature.",
+        "height": 300,
+        "width": 520,
+        "color": 3
+      },
+      "id": "fc1c34ee-4162-47b3-8ba6-a3432167bb85",
+      "name": "Sticky Note 597cc6d8",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -48,
+        928
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "content": "## ⏸ MKT-04 APPROVAL LIFECYCLE\n- Wait resumes **On Webhook Call** (POST). The Control Room calls {{ $execution.resumeUrl }} (sent in the draft body) to resume this exact execution.\n- Protected by **Header Auth** using a SEPARATE credential **N8N_RESUME_SECRET** (never reuse N8N_INGRESS_SECRET).\n  Open this Wait node and set Authentication = Header Auth, selecting the N8N_RESUME_SECRET credential.\n- Finite **24h** max wait for staging.\n\n**APPROVAL IS NOT PUBLICATION.** The Control Room only marks content PUBLISHED after it receives a successful publish receipt from MKT-05.\nMissing/malformed decisions **fail closed**. REJECTED and REVISION_REQUESTED can never reach a publisher.",
+        "height": 300,
+        "width": 540,
+        "color": 5
+      },
+      "id": "e3af83f9-355a-46ac-9df1-53b4b025d201",
+      "name": "Sticky Note d6b10703",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        1248
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "content": "## 🚫 NO AI AFTER APPROVAL\nAfter APPROVED, there is **absolutely no LLM / generative rewrite**. The exact human-approved revision (title/body) is what publishes.\nOnly deterministic platform formatting is permitted downstream.\n\n## 🔌 REAL SOCIAL CREDENTIALS\nAttach production publish nodes/credentials on the per-channel publisher nodes (TWITTER / LINKEDIN / DISCORD / EMAIL / BLOG).\nUntil then, every channel converges on the **Staging Mock Publisher** which mints a clearly-marked TEST post id/URL and never posts publicly.\nA publisher failure routes to **Build FAILED Receipt** so a FAILED receipt is still signed and sent.",
+        "height": 320,
+        "width": 540,
+        "color": 6
+      },
+      "id": "ea7bc233-dd48-4f99-974f-258882a1db6f",
+      "name": "Sticky Note 90ce959e",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        1248
+      ],
+      "disabled": true
+    },
+    {
+      "id": "579ab5f3-682d-449d-9028-978d353bc2ab",
+      "name": "MKT-03 ▪ Creator LLM (OpenAI)",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.3,
+      "position": [
+        448,
+        768
+      ],
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o",
+          "cachedResultName": "gpt-4o"
+        },
+        "operation": "response",
+        "resource": "text",
+        "responses": {
+          "values": [
+            {
+              "content": "={{ 'You are AEON Control Room Creator agent for Adaptive Liquidity Labs.\\nUse this research package as context (do not invent guarantees):\\n' + ($json.researchBrief || '{}') + '\\n\\nReturn ONLY valid JSON (no markdown) with keys:\\ntitle (string, max 120 chars),\\nbody (string, marketing copy for the channel),\\ntype (one of TWITTER_THREAD, LINKEDIN_POST, DISCORD_MESSAGE, EMAIL, BLOG_POST),\\nchannel (one of TWITTER, LINKEDIN, DISCORD, EMAIL, BLOG),\\ncampaignId (null or string).\\n\\nPrefer channel TWITTER and type TWITTER_THREAD. Be concrete and compliant (no guaranteed yield / get-rich claims).' }}",
+              "role": "user",
+              "type": "text"
+            }
+          ]
+        },
+        "simplify": true
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "BmB59ljWXBKxuiDZ",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "id": "fb9cc4dc-608c-4ec4-ac26-f9806629356f",
+      "name": "MKT-03 ▪ Parse Creator JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        768
+      ],
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nlet text = '';\nif (typeof item.output === 'string') text = item.output;\nelse if (typeof item.text === 'string') text = item.text;\nelse if (item.message && typeof item.message.content === 'string') text = item.message.content;\nelse if (Array.isArray(item.choices) && item.choices[0]?.message?.content) text = item.choices[0].message.content;\nelse text = JSON.stringify(item);\n\nconst fence = text.match(/```(?:json)?\\s*([\\s\\S]*?)```/i);\nif (fence) text = fence[1];\nconst start = text.indexOf('{');\nconst end = text.lastIndexOf('}');\nif (start >= 0 && end > start) text = text.slice(start, end + 1);\n\nlet parsed;\ntry { parsed = JSON.parse(text); } catch (e) {\n  throw new Error('Creator LLM did not return valid JSON: ' + String(e.message || e));\n}\n\nconst allowedTypes = ['TWITTER_THREAD','BLOG_POST','EMAIL','PRESS_RELEASE','AD_CREATIVE','VIDEO_SCRIPT','LINKEDIN_POST','DISCORD_MESSAGE'];\nconst allowedChannels = ['TWITTER','LINKEDIN','DISCORD','EMAIL','BLOG'];\nconst title = String(parsed.title || '').trim().slice(0, 200);\nconst body = String(parsed.body || '').trim();\nconst type = allowedTypes.includes(parsed.type) ? parsed.type : 'TWITTER_THREAD';\nconst channel = allowedChannels.includes(parsed.channel) ? parsed.channel : 'TWITTER';\nif (!title || !body) throw new Error('Creator JSON missing title or body');\n\nreturn [{ json: {\n  title,\n  body,\n  type,\n  channel,\n  campaignId: parsed.campaignId === undefined || parsed.campaignId === '' ? null : parsed.campaignId,\n  modelAlias: 'gpt-4o',\n  promptVersion: 'mkt-03-v1',\n  creatorStartedAt: new Date().toISOString()\n} }];"
+      }
+    },
+    {
+      "id": "562ec2c6-ff77-49e1-8dde-07703d9bec4a",
+      "name": "MKT-09 ▪ Build AgentRun RUNNING",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        960
+      ],
+      "parameters": {
+        "jsCode": "const c = $input.first().json;\nconst eventId = 'ar-running-' + $execution.id + '-' + Date.now();\nconst bodyObj = {\n  schemaVersion: '1',\n  eventId,\n  workflowId: $workflow.id,\n  executionId: $execution.id,\n  status: 'RUNNING',\n  agentName: 'creator',\n  modelAlias: c.modelAlias || 'gpt-4o',\n  promptVersion: c.promptVersion || 'mkt-03-v1',\n  startedAt: c.creatorStartedAt || new Date().toISOString(),\n  metadata: { stage: 'creator' }\n};\nconst timestamp = Math.floor(Date.now() / 1000).toString();\nconst rawBody = JSON.stringify(bodyObj);\nreturn [{ json: Object.assign({}, c, {\n  __agentRun: {\n    timestamp,\n    rawBody,\n    hmacMessage: timestamp + '.' + rawBody\n  }\n}) }];"
+      }
+    },
+    {
+      "id": "f3617cc4-53a2-4f64-bab8-3fdb9663c842",
+      "name": "MKT-09 ▪ HMAC Sign AgentRun RUNNING",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 2,
+      "position": [
+        784,
+        960
+      ],
+      "parameters": {
+        "action": "hmac",
+        "dataPropertyName": "__agentRunSignature",
+        "value": "={{ $json.__agentRun.hmacMessage }}"
+      },
+      "credentials": {
+        "crypto": {
+          "id": "YIlsh8NApQILFzVQ",
+          "name": "Control Room - Ingress HMAC"
+        }
+      }
+    },
+    {
+      "id": "9d163542-12fb-4853-9c97-e14477dfdf55",
+      "name": "MKT-09 ▪ POST AgentRun RUNNING",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1008,
+        960
+      ],
+      "parameters": {
+        "body": "={{ $json.__agentRun.rawBody }}",
+        "contentType": "raw",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Timestamp",
+              "value": "={{ $json.__agentRun.timestamp }}"
+            },
+            {
+              "name": "X-N8N-Signature",
+              "value": "={{ $json.__agentRunSignature }}"
+            }
+          ]
+        },
+        "method": "POST",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "rawContentType": "application/json",
+        "sendBody": true,
+        "sendHeaders": true,
+        "url": "={{ $('Config Base URL').item.json.controlRoomBaseUrl }}/api/integrations/n8n/agent-runs"
+      }
+    },
+    {
+      "id": "7fab0da8-6fcf-40ac-830f-2f3b323d0820",
+      "name": "MKT-09 ▪ Restore Creator Fields After RUNNING",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1232,
+        960
+      ],
+      "parameters": {
+        "jsCode": "// HTTP Request may replace json; restore creator fields from Parse node\nconst c = $('MKT-03 ▪ Parse Creator JSON').item.json;\nreturn [{ json: {\n  title: c.title,\n  body: c.body,\n  type: c.type,\n  channel: c.channel,\n  campaignId: c.campaignId,\n  modelAlias: c.modelAlias,\n  promptVersion: c.promptVersion,\n  creatorStartedAt: c.creatorStartedAt\n} }];"
+      }
+    },
+    {
+      "id": "5b10e373-bb28-402b-9794-9c7dd589c5f7",
+      "name": "MKT-09 ▪ Build AgentRun WAITING_APPROVAL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1900,
+        960
+      ],
+      "parameters": {
+        "jsCode": "const eventId = 'ar-wait-' + $execution.id + '-' + Date.now();\nconst started = $('MKT-03 ▪ Parse Creator JSON').item.json.creatorStartedAt;\nconst latencyMs = started ? Math.max(0, Date.now() - new Date(started).getTime()) : undefined;\nconst bodyObj = {\n  schemaVersion: '1',\n  eventId,\n  workflowId: $workflow.id,\n  executionId: $execution.id,\n  status: 'WAITING_APPROVAL',\n  agentName: 'creator',\n  modelAlias: $('MKT-03 ▪ Parse Creator JSON').item.json.modelAlias || 'gpt-4o',\n  promptVersion: $('MKT-03 ▪ Parse Creator JSON').item.json.promptVersion || 'mkt-03-v1',\n  latencyMs,\n  startedAt: started,\n  metadata: { stage: 'awaiting_human' }\n};\nconst timestamp = Math.floor(Date.now() / 1000).toString();\nconst rawBody = JSON.stringify(bodyObj);\nreturn [{ json: {\n  draftHandoff: $input.first().json,\n  __agentRun: { timestamp, rawBody, hmacMessage: timestamp + '.' + rawBody }\n} }];"
+      }
+    },
+    {
+      "id": "47859ed6-2ce4-4830-ad5b-b240b4b0674a",
+      "name": "MKT-09 ▪ HMAC Sign AgentRun WAITING",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 2,
+      "position": [
+        2124,
+        960
+      ],
+      "parameters": {
+        "action": "hmac",
+        "dataPropertyName": "__agentRunSignature",
+        "value": "={{ $json.__agentRun.hmacMessage }}"
+      },
+      "credentials": {
+        "crypto": {
+          "id": "YIlsh8NApQILFzVQ",
+          "name": "Control Room - Ingress HMAC"
+        }
+      }
+    },
+    {
+      "id": "e1f3503d-30d1-42f2-ad2d-8f65d4ad4adc",
+      "name": "MKT-09 ▪ POST AgentRun WAITING",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2348,
+        960
+      ],
+      "parameters": {
+        "body": "={{ $json.__agentRun.rawBody }}",
+        "contentType": "raw",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Timestamp",
+              "value": "={{ $json.__agentRun.timestamp }}"
+            },
+            {
+              "name": "X-N8N-Signature",
+              "value": "={{ $json.__agentRunSignature }}"
+            }
+          ]
+        },
+        "method": "POST",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "rawContentType": "application/json",
+        "sendBody": true,
+        "sendHeaders": true,
+        "url": "={{ $('Config Base URL').item.json.controlRoomBaseUrl }}/api/integrations/n8n/agent-runs"
+      }
+    },
+    {
+      "id": "9458ff6c-6e1a-471d-9bef-0f7a657ae180",
+      "name": "MKT-09 ▪ Pass-through to Wait",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2572,
+        960
+      ],
+      "parameters": {
+        "jsCode": "// Preserve draft handoff response for Wait context if needed; Wait mainly needs resume URL from execution\nreturn [{ json: $('MKT-03 ▪ Control Room Draft Handoff').item.json }];"
+      }
+    },
+    {
+      "id": "8df65160-b716-41cb-8b03-593ebf7144e5",
+      "name": "MKT-09 ▪ Build AgentRun SUCCESS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4700,
+        288
+      ],
+      "parameters": {
+        "jsCode": "const a = $('Validate Approved Revision').item.json;\nconst receipt = $('MKT-05 ▪ Normalize + Canonical Receipt Body').item.json;\nlet runStatus = 'FAILED';\ntry {\n  const parsed = JSON.parse(receipt.rawBody);\n  runStatus = parsed.status === 'SUCCESS' ? 'SUCCESS' : 'FAILED';\n} catch (e) {\n  runStatus = 'FAILED';\n}\nconst eventId = 'ar-pub-' + $execution.id + '-' + Date.now();\nconst bodyObj = {\n  schemaVersion: '1',\n  eventId,\n  workflowId: $workflow.id,\n  executionId: $execution.id,\n  status: runStatus,\n  agentName: 'publisher',\n  modelAlias: 'staging-mock',\n  promptVersion: 'mkt-05-v1',\n  finishedAt: new Date().toISOString(),\n  metadata: { stage: 'publish_receipt', channel: a.channel, contentId: a.contentId, receiptStatus: runStatus }\n};\nconst timestamp = Math.floor(Date.now() / 1000).toString();\nconst rawBody = JSON.stringify(bodyObj);\nreturn [{ json: Object.assign({}, $input.first().json, {\n  __agentRun: { timestamp, rawBody, hmacMessage: timestamp + '.' + rawBody }\n}) }];"
+      }
+    },
+    {
+      "id": "25557dcc-d7bd-45ae-bbab-5dafb515555a",
+      "name": "MKT-09 ▪ HMAC Sign AgentRun SUCCESS",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 2,
+      "position": [
+        4924,
+        288
+      ],
+      "parameters": {
+        "action": "hmac",
+        "dataPropertyName": "__agentRunSignature",
+        "value": "={{ $json.__agentRun.hmacMessage }}"
+      },
+      "credentials": {
+        "crypto": {
+          "id": "YIlsh8NApQILFzVQ",
+          "name": "Control Room - Ingress HMAC"
+        }
+      }
+    },
+    {
+      "id": "65675d2f-ffca-4d4f-8bfa-f9c5375df4ee",
+      "name": "MKT-09 ▪ POST AgentRun SUCCESS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        5148,
+        288
+      ],
+      "parameters": {
+        "body": "={{ $json.__agentRun.rawBody }}",
+        "contentType": "raw",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Timestamp",
+              "value": "={{ $json.__agentRun.timestamp }}"
+            },
+            {
+              "name": "X-N8N-Signature",
+              "value": "={{ $json.__agentRunSignature }}"
+            }
+          ]
+        },
+        "method": "POST",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "rawContentType": "application/json",
+        "sendBody": true,
+        "sendHeaders": true,
+        "url": "={{ $('Config Base URL').item.json.controlRoomBaseUrl }}/api/integrations/n8n/agent-runs"
+      }
+    },
+    {
+      "id": "5d9eaaef-778b-4357-b5fb-0450a052e9f2",
+      "name": "MKT-03 ▪ Build Policy Check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        960
+      ],
+      "parameters": {
+        "jsCode": "const campaignId = null; // optional: set a campaign CUID to enforce pause/stop/limits\nconst bodyObj = { schemaVersion: '1', ...(campaignId ? { campaignId } : {}) };\nconst timestamp = Math.floor(Date.now() / 1000).toString();\nconst rawBody = JSON.stringify(bodyObj);\nreturn [{ json: {\n  __policy: { timestamp, rawBody, hmacMessage: timestamp + '.' + rawBody, campaignId }\n} }];"
+      }
+    },
+    {
+      "id": "2d99ac6f-a677-40e8-a64a-ed181515f70a",
+      "name": "MKT-03 ▪ HMAC Sign Policy Check",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 2,
+      "position": [
+        336,
+        960
+      ],
+      "parameters": {
+        "action": "hmac",
+        "dataPropertyName": "__policySignature",
+        "value": "={{ $json.__policy.hmacMessage }}"
+      },
+      "credentials": {
+        "crypto": {
+          "id": "YIlsh8NApQILFzVQ",
+          "name": "Control Room - Ingress HMAC"
+        }
+      }
+    },
+    {
+      "id": "79bef648-b5c8-4bbb-ba03-d5faf365c0d3",
+      "name": "MKT-03 ▪ Policy Check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        448,
+        960
+      ],
+      "parameters": {
+        "body": "={{ $json.__policy.rawBody }}",
+        "contentType": "raw",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Timestamp",
+              "value": "={{ $json.__policy.timestamp }}"
+            },
+            {
+              "name": "X-N8N-Signature",
+              "value": "={{ $json.__policySignature }}"
+            }
+          ]
+        },
+        "method": "POST",
+        "options": {},
+        "rawContentType": "application/json",
+        "sendBody": true,
+        "sendHeaders": true,
+        "url": "={{ $('Config Base URL').item.json.controlRoomBaseUrl }}/api/integrations/n8n/policy-check"
+      }
+    },
+    {
+      "id": "2e961283-4d88-4332-a7db-a6cdab7ff81a",
+      "name": "MKT-03 ▪ Assert Policy Allowed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        960
+      ],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nif (j.allowed !== true) {\n  throw new Error('Policy check blocked generation: ' + (j.reason || 'missing allowed=true') + '. Failing closed before LLM spend.');\n}\nreturn [{ json: { policyAllowed: true, policy: j } }];"
+      }
+    },
+    {
+      "id": "583bfcc2-63f7-4f4a-998f-c8bd4c265bc1",
+      "name": "MKT-02 ▪ Researcher LLM (OpenAI)",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.3,
+      "position": [
+        336,
+        640
+      ],
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "cachedResultName": "gpt-4o-mini",
+          "mode": "list",
+          "value": "gpt-4o-mini"
+        },
+        "operation": "response",
+        "resource": "text",
+        "responses": {
+          "values": [
+            {
+              "content": "You are AEON Researcher for Adaptive Liquidity Labs.\nReturn ONLY valid JSON (no markdown) with keys:\nsummary (2-4 sentences on current DeFi/treasury narrative worth marketing),\nangles (array of 3 short campaign angles),\nrisks (array of compliance risks to avoid),\nsources (array of short source labels, can be hypothetical public themes).\nFocus on professional institutional DeFi / AEON Control Room positioning.",
+              "role": "user",
+              "type": "text"
+            }
+          ]
+        },
+        "simplify": true
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "BmB59ljWXBKxuiDZ",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "id": "432568cc-0c8d-481f-826b-a2b4703f71da",
+      "name": "MKT-02 ▪ Parse Research JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        640
+      ],
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nlet text = '';\nif (typeof item.output === 'string') text = item.output;\nelse if (typeof item.text === 'string') text = item.text;\nelse if (item.message && typeof item.message.content === 'string') text = item.message.content;\nelse text = JSON.stringify(item);\nconst fence = text.match(/```(?:json)?\\s*([\\s\\S]*?)```/i);\nif (fence) text = fence[1];\nconst start = text.indexOf('{');\nconst end = text.lastIndexOf('}');\nif (start >= 0 && end > start) text = text.slice(start, end + 1);\nlet parsed;\ntry { parsed = JSON.parse(text); } catch (e) {\n  parsed = { summary: text.slice(0, 500), angles: [], risks: [], sources: [] };\n}\nreturn [{ json: {\n  research: parsed,\n  researchBrief: JSON.stringify(parsed),\n  modelAliasResearch: 'gpt-4o-mini',\n  promptVersionResearch: 'mkt-02-v1'\n} }];"
+      }
+    }
+  ],
+  "connections": {
+    "MKT-03 ▶ Manual Trigger (Staging)": {
+      "main": [
+        [
+          {
+            "node": "Config Base URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-03 ▪ Generate eventId (UUID)": {
+      "main": [
+        [
+          {
+            "node": "MKT-03 ▪ Generate externalDraftId (UUID)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-03 ▪ Generate externalDraftId (UUID)": {
+      "main": [
+        [
+          {
+            "node": "MKT-03 ▪ Normalize + Canonical Raw Body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-03 ▪ Normalize + Canonical Raw Body": {
+      "main": [
+        [
+          {
+            "node": "MKT-03 ▪ HMAC Sign Draft (N8N_INGRESS_SECRET)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-03 ▪ HMAC Sign Draft (N8N_INGRESS_SECRET)": {
+      "main": [
+        [
+          {
+            "node": "MKT-03 ▪ Control Room Draft Handoff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-04 ⏸ Wait for Human Approval (24h max)": {
+      "main": [
+        [
+          {
+            "node": "MKT-04 ▪ Parse Approval Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-04 ▪ Parse Approval Decision": {
+      "main": [
+        [
+          {
+            "node": "MKT-04 ⛖ Decision Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-04 ⛖ Decision Switch": {
+      "main": [
+        [
+          {
+            "node": "Validate Approved Revision",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "MKT-04 ■ REJECTED — Stop (no publish)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "MKT-04 ■ REVISION_REQUESTED — Revision Path (no publish)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "MKT-04 ✖ Malformed/Unknown Decision — Fail Closed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Approved Revision": {
+      "main": [
+        [
+          {
+            "node": "MKT-05 ⛖ Route by Channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-05 ⛖ Route by Channel": {
+      "main": [
+        [
+          {
+            "node": "MKT-05 ▪ TWITTER Publisher (PROD — attach credential)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "MKT-05 ▪ LINKEDIN Publisher (PROD — attach credential)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "MKT-05 ▪ DISCORD Publisher (PROD — attach credential)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "MKT-05 ▪ EMAIL Publisher (PROD — attach credential)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "MKT-05 ▪ BLOG Publisher (PROD — attach credential)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "MKT-05 ✖ Unknown Channel — Fail Closed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-05 ▪ TWITTER Publisher (PROD — attach credential)": {
+      "main": [
+        [
+          {
+            "node": "Staging Mock Publisher",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Staging Mock Publisher": {
+      "main": [
+        [
+          {
+            "node": "MKT-05 ▪ Build PUBLISHED Receipt",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "MKT-05 ▪ Build FAILED Receipt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-05 ▪ Build PUBLISHED Receipt": {
+      "main": [
+        [
+          {
+            "node": "MKT-05 ▪ Generate Receipt eventId (UUID)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-05 ▪ Generate Receipt eventId (UUID)": {
+      "main": [
+        [
+          {
+            "node": "MKT-05 ▪ Normalize + Canonical Receipt Body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-05 ▪ Build FAILED Receipt": {
+      "main": [
+        [
+          {
+            "node": "MKT-05 ▪ Generate Receipt eventId (UUID)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-05 ▪ Normalize + Canonical Receipt Body": {
+      "main": [
+        [
+          {
+            "node": "MKT-05 ▪ HMAC Sign Receipt (N8N_INGRESS_SECRET)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-05 ▪ HMAC Sign Receipt (N8N_INGRESS_SECRET)": {
+      "main": [
+        [
+          {
+            "node": "MKT-05 ▪ Control Room Publish Receipt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-05 ▪ LINKEDIN Publisher (PROD — attach credential)": {
+      "main": [
+        [
+          {
+            "node": "Staging Mock Publisher",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-05 ▪ DISCORD Publisher (PROD — attach credential)": {
+      "main": [
+        [
+          {
+            "node": "Staging Mock Publisher",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-05 ▪ EMAIL Publisher (PROD — attach credential)": {
+      "main": [
+        [
+          {
+            "node": "Staging Mock Publisher",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-05 ▪ BLOG Publisher (PROD — attach credential)": {
+      "main": [
+        [
+          {
+            "node": "Staging Mock Publisher",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-03 ▪ Creator LLM (OpenAI)": {
+      "main": [
+        [
+          {
+            "node": "MKT-03 ▪ Parse Creator JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-03 ▪ Parse Creator JSON": {
+      "main": [
+        [
+          {
+            "node": "MKT-09 ▪ Build AgentRun RUNNING",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-09 ▪ Build AgentRun RUNNING": {
+      "main": [
+        [
+          {
+            "node": "MKT-09 ▪ HMAC Sign AgentRun RUNNING",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-09 ▪ HMAC Sign AgentRun RUNNING": {
+      "main": [
+        [
+          {
+            "node": "MKT-09 ▪ POST AgentRun RUNNING",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-09 ▪ POST AgentRun RUNNING": {
+      "main": [
+        [
+          {
+            "node": "MKT-09 ▪ Restore Creator Fields After RUNNING",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-09 ▪ Restore Creator Fields After RUNNING": {
+      "main": [
+        [
+          {
+            "node": "MKT-03 ▪ Generate eventId (UUID)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-03 ▪ Control Room Draft Handoff": {
+      "main": [
+        [
+          {
+            "node": "MKT-09 ▪ Build AgentRun WAITING_APPROVAL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-09 ▪ Build AgentRun WAITING_APPROVAL": {
+      "main": [
+        [
+          {
+            "node": "MKT-09 ▪ HMAC Sign AgentRun WAITING",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-09 ▪ HMAC Sign AgentRun WAITING": {
+      "main": [
+        [
+          {
+            "node": "MKT-09 ▪ POST AgentRun WAITING",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-09 ▪ POST AgentRun WAITING": {
+      "main": [
+        [
+          {
+            "node": "MKT-09 ▪ Pass-through to Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-09 ▪ Pass-through to Wait": {
+      "main": [
+        [
+          {
+            "node": "MKT-04 ⏸ Wait for Human Approval (24h max)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-05 ▪ Control Room Publish Receipt": {
+      "main": [
+        [
+          {
+            "node": "MKT-09 ▪ Build AgentRun SUCCESS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-09 ▪ Build AgentRun SUCCESS": {
+      "main": [
+        [
+          {
+            "node": "MKT-09 ▪ HMAC Sign AgentRun SUCCESS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-09 ▪ HMAC Sign AgentRun SUCCESS": {
+      "main": [
+        [
+          {
+            "node": "MKT-09 ▪ POST AgentRun SUCCESS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config Base URL": {
+      "main": [
+        [
+          {
+            "node": "MKT-03 ▪ Build Policy Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-03 ▪ Build Policy Check": {
+      "main": [
+        [
+          {
+            "node": "MKT-03 ▪ HMAC Sign Policy Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-03 ▪ HMAC Sign Policy Check": {
+      "main": [
+        [
+          {
+            "node": "MKT-03 ▪ Policy Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-03 ▪ Policy Check": {
+      "main": [
+        [
+          {
+            "node": "MKT-03 ▪ Assert Policy Allowed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-03 ▪ Assert Policy Allowed": {
+      "main": [
+        [
+          {
+            "node": "MKT-02 ▪ Researcher LLM (OpenAI)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-02 ▪ Researcher LLM (OpenAI)": {
+      "main": [
+        [
+          {
+            "node": "MKT-02 ▪ Parse Research JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-02 ▪ Parse Research JSON": {
+      "main": [
+        [
+          {
+            "node": "MKT-03 ▪ Creator LLM (OpenAI)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp"
+  },
+  "pinData": {},
+  "versionId": "c80f61e7-e4f4-4c43-b907-1f251c82fa71"
+}
