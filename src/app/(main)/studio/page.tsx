@@ -32,7 +32,7 @@ type GuardianResult = {
 
 interface AssetRow {
   id: string;
-  filename: string;
+  originalFilename: string;
   mimeType: string;
 }
 
@@ -64,6 +64,11 @@ export default function StudioPage() {
   const [selectedAssetId, setSelectedAssetId] = useState("");
   const [altText, setAltText] = useState("");
   const [attachMessage, setAttachMessage] = useState<string | null>(null);
+
+  function invalidateSavedDraft() {
+    setSavedDraft(null);
+    setAttachMessage(null);
+  }
 
   const { data: assets } = useQuery<{ items: AssetRow[] }>({
     queryKey: ["assets", "studio"],
@@ -171,13 +176,19 @@ export default function StudioPage() {
               className="h-11 w-full rounded-md border border-border bg-card px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring sm:h-auto"
               placeholder="Title"
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              onChange={(e) => {
+                setTitle(e.target.value);
+                invalidateSavedDraft();
+              }}
             />
             <div className="flex flex-wrap gap-3">
               <select
                 className="h-11 rounded-md border border-border bg-card px-3 py-2 text-sm outline-none sm:h-auto sm:text-xs"
                 value={channel}
-                onChange={(e) => setChannel(e.target.value as (typeof CHANNELS)[number])}
+                onChange={(e) => {
+                  setChannel(e.target.value as (typeof CHANNELS)[number]);
+                  invalidateSavedDraft();
+                }}
               >
                 {CHANNELS.map((c) => (
                   <option key={c} value={c}>
@@ -188,7 +199,10 @@ export default function StudioPage() {
               <select
                 className="h-11 rounded-md border border-border bg-card px-3 py-2 text-sm outline-none sm:h-auto sm:text-xs"
                 value={type}
-                onChange={(e) => setType(e.target.value as (typeof TYPES)[number])}
+                onChange={(e) => {
+                  setType(e.target.value as (typeof TYPES)[number]);
+                  invalidateSavedDraft();
+                }}
               >
                 {TYPES.map((t) => (
                   <option key={t} value={t}>
@@ -202,7 +216,10 @@ export default function StudioPage() {
             className="min-h-[280px] w-full resize-y border-none bg-card p-5 text-sm leading-relaxed outline-none sm:min-h-[400px]"
             placeholder="Start writing... The Guardian Agent will pre-flight check your content before submission."
             value={body}
-            onChange={(e) => setBody(e.target.value)}
+            onChange={(e) => {
+              setBody(e.target.value);
+              invalidateSavedDraft();
+            }}
           />
         </Card>
         <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
@@ -311,7 +328,7 @@ export default function StudioPage() {
                   <option value="">Select an asset…</option>
                   {(assets?.items ?? []).map((asset) => (
                     <option key={asset.id} value={asset.id}>
-                      {asset.filename}
+                      {asset.originalFilename}
                     </option>
                   ))}
                 </select>

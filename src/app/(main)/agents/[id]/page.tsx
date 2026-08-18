@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -62,12 +63,17 @@ function statusDot(status: string): "online" | "offline" | "error" {
 export default function AgentDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params?.id;
+  const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    setPage(1);
+  }, [id]);
 
   const { data, isLoading, isError, error } = useQuery<AgentDetail>({
-    queryKey: ["agent", id],
+    queryKey: ["agent", id, page],
     enabled: Boolean(id),
     queryFn: async () => {
-      const res = await fetch(`/api/agents/${id}`);
+      const res = await fetch(`/api/agents/${id}?page=${page}&limit=50`);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || `Failed to load agent (${res.status})`);
@@ -129,8 +135,31 @@ export default function AgentDetailPage() {
           </Card>
 
           <Card>
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0">
               <CardTitle>Runs</CardTitle>
+              {data.runs.items.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={page <= 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  >
+                    Previous
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    {page} / {Math.max(1, data.runs.totalPages)}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={page >= data.runs.totalPages}
+                    onClick={() => setPage((p) => p + 1)}
+                  >
+                    Next
+                  </Button>
+                </div>
+              )}
             </CardHeader>
             <CardContent>
               {data.runs.items.length === 0 ? (

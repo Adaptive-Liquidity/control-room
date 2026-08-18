@@ -119,6 +119,43 @@ export class AgentRunService {
     return { run, idempotent: false };
   }
 
+  private agentRunMatchWhere(agent: { id: string; name: string }): Prisma.AgentRunWhereInput {
+    return {
+      OR: [{ agentId: agent.id }, { agentId: null, agentName: agent.name }],
+    };
+  }
+
+  private buildSummary(params: {
+    totalRuns: number;
+    success: number;
+    failed: number;
+    avgLatencyMs: number | null;
+    totalTokens: number;
+    totalCostUsd: number;
+    recentRuns: RunSummaryInput[];
+  }) {
+    return {
+      aggregates24h: {
+        runs: params.totalRuns,
+        success: params.success,
+        failed: params.failed,
+        successRate: params.totalRuns
+          ? Math.round((params.success / params.totalRuns) * 1000) / 10
+          : null,
+        avgLatencyMs:
+          params.avgLatencyMs != null ? Math.round(params.avgLatencyMs) : null,
+        totalTokens: params.totalTokens,
+        totalCostUsd: Math.round(params.totalCostUsd * 1e6) / 1e6,
+      },
+      recentRuns: params.recentRuns.slice(0, 5).map((r) => ({
+        status: r.status,
+        latencyMs: r.latencyMs,
+        createdAt: r.createdAt,
+        errorMessage: r.errorMessage,
+      })),
+    };
+  }
+
   private summarizeRuns(runs: RunSummaryInput[]) {
     const success = runs.filter((r) => r.status === 'SUCCESS').length;
     const failed = runs.filter((r) => r.status === 'FAILED').length;
@@ -132,23 +169,48 @@ export class AgentRunService {
     const totalCost = runs.reduce((sum, r) => sum + (r.costUsd ?? 0), 0);
     const totalTokens = runs.reduce((sum, r) => sum + (r.tokensIn ?? 0) + (r.tokensOut ?? 0), 0);
 
-    return {
-      aggregates24h: {
-        runs: runs.length,
-        success,
-        failed,
-        successRate: runs.length ? Math.round((success / runs.length) * 1000) / 10 : null,
-        avgLatencyMs: avgLatency,
-        totalTokens,
-        totalCostUsd: Math.round(totalCost * 1e6) / 1e6,
-      },
-      recentRuns: runs.slice(0, 5).map((r) => ({
-        status: r.status,
-        latencyMs: r.latencyMs,
-        createdAt: r.createdAt,
-        errorMessage: r.errorMessage,
-      })),
+    return this.buildSummary({
+      totalRuns: runs.length,
+      success,
+      failed,
+      avgLatencyMs: avgLatency,
+      totalTokens,
+      totalCostUsd: totalCost,
+      recentRuns: runs,
+    });
+  }
+
+  private async summarizeRegisteredAgent24h(agent: { id: string; name: string }, since: Date) {
+    const where24h: Prisma.AgentRunWhereInput = {
+      AND: [this.agentRunMatchWhere(agent), { createdAt: { gte: since } }],
     };
+
+    const [totalRuns, success, failed, aggregates, recentRuns] = await Promise.all([
+      prisma.agentRun.count({ where: where24h }),
+      prisma.agentRun.count({ where: { ...where24h, status: 'SUCCESS' } }),
+      prisma.agentRun.count({ where: { ...where24h, status: 'FAILED' } }),
+      prisma.agentRun.aggregate({
+        where: where24h,
+        _sum: { costUsd: true, tokensIn: true, tokensOut: true },
+        _avg: { latencyMs: true },
+      }),
+      prisma.agentRun.findMany({
+        where: where24h,
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+        select: RUN_SUMMARY_SELECT,
+      }),
+    ]);
+
+    return this.buildSummary({
+      totalRuns,
+      success,
+      failed,
+      avgLatencyMs: aggregates._avg.latencyMs,
+      totalTokens: (aggregates._sum.tokensIn ?? 0) + (aggregates._sum.tokensOut ?? 0),
+      totalCostUsd: aggregates._sum.costUsd ?? 0,
+      recentRuns,
+    });
   }
 
   async enrichAgents() {
@@ -157,24 +219,20 @@ export class AgentRunService {
 
     const enriched = await Promise.all(
       agents.map(async (agent) => {
-        const [lastRun, runs24h] = await Promise.all([
+        const [lastRun, summary24h] = await Promise.all([
           prisma.agentRun.findFirst({
-            where: { agentId: agent.id },
+            where: this.agentRunMatchWhere(agent),
             orderBy: { createdAt: 'desc' },
           }),
-          prisma.agentRun.findMany({
-            where: { agentId: agent.id, createdAt: { gte: since } },
-            orderBy: { createdAt: 'desc' },
-            select: RUN_SUMMARY_SELECT,
-          }),
+          this.summarizeRegisteredAgent24h(agent, since),
         ]);
 
         return {
           ...agent,
           unregistered: false,
           lastRun,
-          runs24h: runs24h.length,
-          ...this.summarizeRuns(runs24h),
+          runs24h: summary24h.aggregates24h.runs,
+          ...summary24h,
         };
       })
     );

@@ -72,8 +72,10 @@ async function main() {
 
   for (const agent of AGENTS) {
     const existing = await prisma.agent.findUnique({ where: { name: agent.name } });
+    let agentId: string;
+
     if (!existing) {
-      await prisma.agent.create({
+      const row = await prisma.agent.create({
         data: {
           name: agent.name,
           type: agent.type,
@@ -81,18 +83,28 @@ async function main() {
           status: 'OFFLINE',
         },
       });
+      agentId = row.id;
       created += 1;
       console.log(`created ${agent.name} (${agent.type})`);
     } else {
-      await prisma.agent.update({
+      const row = await prisma.agent.update({
         where: { name: agent.name },
         data: {
           type: agent.type,
           config: agent.config,
         },
       });
+      agentId = row.id;
       updated += 1;
       console.log(`updated ${agent.name} (${agent.type})`);
+    }
+
+    const backfilled = await prisma.agentRun.updateMany({
+      where: { agentName: agent.name, agentId: null },
+      data: { agentId },
+    });
+    if (backfilled.count > 0) {
+      console.log(`backfilled ${backfilled.count} agent run(s) for ${agent.name}`);
     }
   }
 

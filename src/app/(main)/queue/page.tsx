@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import { ChevronLeft } from "lucide-react";
@@ -119,6 +119,10 @@ export default function QueuePage() {
     () => items.find((i) => i.id === selectedId) as QueueItem | undefined,
     [items, selectedId]
   );
+
+  useEffect(() => {
+    setScheduledAt("");
+  }, [selectedId]);
 
   async function runDecision(
     kind: "approve" | "reject" | "revision"

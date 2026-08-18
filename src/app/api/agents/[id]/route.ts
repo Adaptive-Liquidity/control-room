@@ -30,14 +30,21 @@ export async function GET(
         ? Math.min(MAX_LIMIT, requestedLimit)
         : MAX_LIMIT;
 
+    const runWhere = {
+      OR: [
+        { agentId: agent.id },
+        { agentId: null, agentName: agent.name },
+      ],
+    };
+
     const [items, total] = await Promise.all([
       prisma.agentRun.findMany({
-        where: { agentId: agent.id },
+        where: runWhere,
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
       }),
-      prisma.agentRun.count({ where: { agentId: agent.id } }),
+      prisma.agentRun.count({ where: runWhere }),
     ]);
 
     return NextResponse.json({

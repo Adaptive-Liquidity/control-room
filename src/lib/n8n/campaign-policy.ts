@@ -1,4 +1,15 @@
+import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
+
+export class CampaignPolicyRejectedError extends Error {
+  readonly reason: CampaignPolicyReason;
+
+  constructor(reason: CampaignPolicyReason) {
+    super(`Campaign policy rejected: ${reason}`);
+    this.name = 'CampaignPolicyRejectedError';
+    this.reason = reason;
+  }
+}
 
 export type CampaignPolicyReason =
   | 'emergency_stopped'
@@ -40,9 +51,12 @@ function resolveRequireHuman(approvalPolicy: unknown): boolean {
  * Returns null when the campaign does not exist so callers pick their own status code.
  */
 export async function evaluateCampaignPolicy(
-  campaignId: string
+  campaignId: string,
+  tx?: Prisma.TransactionClient
 ): Promise<CampaignPolicyDecision | null> {
-  const campaign = await prisma.campaign.findUnique({
+  const db = tx ?? prisma;
+
+  const campaign = await db.campaign.findUnique({
     where: { id: campaignId },
     select: {
       approvalPolicy: true,
@@ -58,10 +72,10 @@ export async function evaluateCampaignPolicy(
 
   const dayStart = startOfUtcDay();
   const [contentToday, publishedToday] = await Promise.all([
-    prisma.content.count({
+    db.content.count({
       where: { campaignId, origin: 'N8N', createdAt: { gte: dayStart } },
     }),
-    prisma.content.count({
+    db.content.count({
       where: { campaignId, status: 'PUBLISHED', publishedAt: { gte: dayStart } },
     }),
   ]);

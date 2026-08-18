@@ -114,7 +114,7 @@ export default function SettingsPage() {
   const [form, setForm] = useState<SettingsForm | null>(null);
   const [saved, setSaved] = useState(false);
 
-  const { data: settings, isLoading: settingsLoading } = useQuery<{
+  const { data: settings, isLoading: settingsLoading, isError: settingsError, error: settingsLoadError } = useQuery<{
     settings: Record<string, unknown>;
   }>({
     queryKey: ["org-settings"],
@@ -146,13 +146,18 @@ export default function SettingsPage() {
   }, [settings]);
 
   const save = useMutation({
-    mutationFn: async (fields: Array<keyof SettingsForm>) => {
-      if (!form) throw new Error("Settings not loaded");
+    mutationFn: async ({
+      fields,
+      snapshot,
+    }: {
+      fields: Array<keyof SettingsForm>;
+      snapshot: SettingsForm;
+    }) => {
       for (const field of fields) {
         const res = await fetch("/api/settings", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ key: SETTING_KEYS[field], value: form[field] }),
+          body: JSON.stringify({ key: SETTING_KEYS[field], value: snapshot[field] }),
         });
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
@@ -166,9 +171,10 @@ export default function SettingsPage() {
     },
   });
 
+  const inputsDisabled = !canManage || save.isPending;
+
   function updateForm(patch: Partial<SettingsForm>) {
     setSaved(false);
-    save.reset();
     setForm((prev) => (prev ? { ...prev, ...patch } : prev));
   }
 
@@ -178,7 +184,7 @@ export default function SettingsPage() {
         <Button
           size="sm"
           disabled={!canManage || !form || save.isPending}
-          onClick={() => save.mutate(fields)}
+          onClick={() => form && save.mutate({ fields, snapshot: form })}
         >
           {save.isPending ? "Saving…" : "Save"}
         </Button>
@@ -296,7 +302,15 @@ export default function SettingsPage() {
           )}
 
           {activeTab === "general" &&
-            (settingsLoading || !form ? (
+            (settingsLoading ? (
+              <p className="text-sm text-muted-foreground">Loading settings…</p>
+            ) : settingsError ? (
+              <p className="text-sm text-destructive">
+                {settingsLoadError instanceof Error
+                  ? settingsLoadError.message
+                  : "Failed to load settings"}
+              </p>
+            ) : !form ? (
               <p className="text-sm text-muted-foreground">Loading settings…</p>
             ) : (
               <div className="max-w-lg space-y-4">
@@ -311,7 +325,7 @@ export default function SettingsPage() {
                     id="org-name"
                     type="text"
                     className={inputClass}
-                    disabled={!canManage}
+                    disabled={inputsDisabled}
                     value={form.orgName}
                     onChange={(e) => updateForm({ orgName: e.target.value })}
                   />
@@ -326,7 +340,7 @@ export default function SettingsPage() {
                   <select
                     id="epoch-duration"
                     className={inputClass}
-                    disabled={!canManage}
+                    disabled={inputsDisabled}
                     value={form.epochDurationHours}
                     onChange={(e) =>
                       updateForm({ epochDurationHours: Number(e.target.value) })
@@ -368,7 +382,15 @@ export default function SettingsPage() {
           )}
 
           {activeTab === "guardian" &&
-            (settingsLoading || !form ? (
+            (settingsLoading ? (
+              <p className="text-sm text-muted-foreground">Loading settings…</p>
+            ) : settingsError ? (
+              <p className="text-sm text-destructive">
+                {settingsLoadError instanceof Error
+                  ? settingsLoadError.message
+                  : "Failed to load settings"}
+              </p>
+            ) : !form ? (
               <p className="text-sm text-muted-foreground">Loading settings…</p>
             ) : (
               <div className="max-w-lg space-y-4">
@@ -383,7 +405,7 @@ export default function SettingsPage() {
                     <select
                       id="guardian-sensitivity"
                       className={inputClass}
-                      disabled={!canManage}
+                      disabled={inputsDisabled}
                       value={form.guardianSensitivity}
                       onChange={(e) => updateForm({ guardianSensitivity: e.target.value })}
                     >
@@ -405,7 +427,7 @@ export default function SettingsPage() {
                       min={0}
                       max={100}
                       className={inputClass}
-                      disabled={!canManage}
+                      disabled={inputsDisabled}
                       value={form.guardianAutoBlockThreshold}
                       onChange={(e) =>
                         updateForm({ guardianAutoBlockThreshold: Number(e.target.value) })

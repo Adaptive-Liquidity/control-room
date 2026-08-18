@@ -71,10 +71,10 @@ n8n audit
 | 14 | Asset uploads require authenticated signed authorization | Upload-url requires session + `content.edit`; no direct Firebase Auth upload |
 | 15 | Approval does not falsely equal publication | After approve, status `APPROVED` not `PUBLISHED` |
 | 16 | Only a publish receipt marks a post published | Receipt SUCCESS → `PUBLISHED`; no other code path |
-| 17 | Agent cards display real execution data | Agents page from `AgentRun` / `/api/agents`. **Evidence path:** `npm run db:seed-agents` on target DB (names: `creator`, `publisher`, `analyzer`, `guardian`, `researcher`); run MKT workflow → RUNNING/WAITING/SUCCESS posts → Agents UI shows Creator/Publisher cards |
+| 17 | Agent cards display real execution data | Agents page from `AgentRun` / `/api/agents`. **Evidence path:** `npm run db:seed-agents` on target DB (all five names: `creator`, `publisher`, `analyzer`, `guardian`, `researcher`); run MKT workflow so Creator/Publisher emit `AgentRun` rows. **Pass criteria:** Creator/Publisher cards show recent runs and 24h stats; `analyzer`, `guardian`, and `researcher` may remain OFFLINE with 0 runs until those workflow stages emit telemetry. |
 | 18 | Integration cards display real health | Settings from `/api/integrations/health` (no secrets) |
 | 19 | Analytics pages display real stored observations | Analytics/Attribution from snapshots/events — use published **MKT-06** stub or real platform pulls |
-| 20 | Tests exercise full draft → approval → publish lifecycle | Jest API tests + optional `E2E_FULL_LIFECYCLE=1` (requires live Wait + outbox drain) |
+| 20 | Tests exercise full draft → approval → publish lifecycle | **Jest** (`npm test`) covers API lifecycle (draft ingress, approval, outbox, publish receipt) without live n8n Wait. **Full gate evidence** requires staging E2E with `E2E_FULL_LIFECYCLE=1` (live Wait resume + outbox drain + publish receipt). Do **not** mark gate 20 done from sign-in-only or authz-only E2E (`E2E_WITH_AUTH=1` alone). |
 | 21 | `npm run build` passes | CI / local build green |
 | 22 | TypeScript passes without `as any` escape hatches in new bridge code | `npm run typecheck`; review n8n/lib contracts |
 | 23 | Prisma migration is committed and reproducible | `prisma migrate deploy` on fresh DB |
@@ -101,7 +101,7 @@ These require live infrastructure and are **not** automated in this repo alone:
 
 | Item | Status | Notes |
 |---|---|---|
-| Gate 17 — agents seeded + AgentRuns visible | Ready to verify | Prod seed + MKT-09 emits in live workflow |
+| Gate 17 — agents seeded + AgentRuns visible | Ready to verify | Seed all five agents; Creator/Publisher runs from MKT-09; analyzer/guardian/researcher may show OFFLINE/0 until those stages emit |
 | n8n audit | Pending | Run on n8n Cloud / host |
 | `E2E_FULL_LIFECYCLE=1` | Pending | Needs Wait resume + frequent outbox drain |
 | Outbox sub-daily cron | Pending | External scheduler recommended (Hobby daily is insufficient) |

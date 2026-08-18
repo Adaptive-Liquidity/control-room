@@ -69,9 +69,13 @@ Omit `campaignId` (or leave unset) for an unscoped allow response — useful for
 {
   "allowed": true,
   "reason": null,
-  "remainingContentToday": 12
+  "remainingContentToday": 12,
+  "remainingPublishToday": 5,
+  "requireHuman": true
 }
 ```
+
+`remainingContentToday` / `remainingPublishToday` are `null` when the campaign has no limit, or for the unscoped response.
 
 - `allowed: false` → n8n must stop before LLM spend (fail closed).
 - `404` → unknown campaign.

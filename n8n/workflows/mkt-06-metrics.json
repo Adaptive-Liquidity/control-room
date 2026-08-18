@@ -1,7 +1,7 @@
 {
   "id": "2lYDNN28W8gMrGtC",
   "name": "AEON Control Room — MKT-06 Metrics/Attribution",
-  "active": true,
+  "active": false,
   "settings": {
     "executionOrder": "v1",
     "availableInMCP": true
@@ -66,6 +66,7 @@
       "parameters": {
         "action": "hmac",
         "type": "SHA256",
+        "encoding": "hex",
         "value": "={{ $json.metric.hmacMessage }}",
         "dataPropertyName": "metricSignature"
       },
@@ -108,10 +109,24 @@
         "options": {
           "response": {
             "response": {
+              "fullResponse": true,
               "neverError": true
             }
           }
         }
+      }
+    },
+    {
+      "id": "a353f40f-6269-4e7d-84cf-c1570c802f28",
+      "name": "Assert Metrics HTTP OK",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1080,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nconst status = j.statusCode ?? j.status ?? 0;\nif (status < 200 || status >= 300) {\n  throw new Error('Metrics ingress failed with HTTP ' + status);\n}\nreturn [{ json: j }];"
       }
     },
     {
@@ -124,7 +139,7 @@
         400
       ],
       "parameters": {
-        "jsCode": "const built = $('Build Metric + Attribution Bodies').item.json;\nreturn [{ json: built }];"
+        "jsCode": "const built = $('Build Metric + Attribution Bodies').item.json;\nconst ts = Math.floor(Date.now() / 1000).toString();\nreturn [{ json: {\n  ...built,\n  attr: {\n    ...built.attr,\n    timestamp: ts,\n    hmacMessage: ts + '.' + built.attr.rawBody\n  }\n} }];"
       }
     },
     {
@@ -139,6 +154,7 @@
       "parameters": {
         "action": "hmac",
         "type": "SHA256",
+        "encoding": "hex",
         "value": "={{ $json.attr.hmacMessage }}",
         "dataPropertyName": "attrSignature"
       },
@@ -181,10 +197,24 @@
         "options": {
           "response": {
             "response": {
+              "fullResponse": true,
               "neverError": true
             }
           }
         }
+      }
+    },
+    {
+      "id": "85aca90a-19a5-47bd-82d4-58ea35d5987d",
+      "name": "Assert Attribution HTTP OK",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1800,
+        400
+      ],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nconst status = j.statusCode ?? j.status ?? 0;\nif (status < 200 || status >= 300) {\n  throw new Error('Attribution ingress failed with HTTP ' + status);\n}\nreturn [{ json: j }];"
       }
     },
     {
@@ -257,6 +287,17 @@
       "main": [
         [
           {
+            "node": "Assert Metrics HTTP OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assert Metrics HTTP OK": {
+      "main": [
+        [
+          {
             "node": "Restore Attribution Payload",
             "type": "main",
             "index": 0
@@ -286,6 +327,17 @@
         ]
       ]
     },
+    "POST Attribution Ingress": {
+      "main": [
+        [
+          {
+            "node": "Assert Attribution HTTP OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "MKT-06 Every 6h": {
       "main": [
         [
@@ -303,5 +355,5 @@
     "builderVariant": "mcp"
   },
   "pinData": {},
-  "versionId": "71514bb8-16ff-4dae-9591-6efee14d7972"
+  "versionId": "8daf5009-59d9-4ecd-88fe-f03e25fcf0b5"
 }
