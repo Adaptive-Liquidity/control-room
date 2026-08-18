@@ -1,11 +1,30 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { StatusDot } from "@/components/ui/status-dot";
 import { ResponsiveTable } from "@/components/ui/responsive-table";
+import {
+  useApproveContent,
+  useRejectContent,
+  useRequestRevision,
+} from "@/hooks/useQueue";
+
+interface DashboardQueueItem {
+  id: string;
+  title: string;
+  channel: string;
+  status: string;
+  origin: string;
+  guardianScore: number;
+  currentRevisionId: string | null;
+  author: { name: string | null; email: string } | null;
+}
 
 interface DashboardData {
   stats: {
@@ -16,9 +35,20 @@ interface DashboardData {
     guardianPassRate: number;
     contentToDevAttribution: number;
   };
-  recentQueue: any[];
+  recentQueue: DashboardQueueItem[];
   upcoming: any[];
   agents: any[];
+}
+
+const APPROVE_ROLES = new Set(["ADMIN", "MANAGER", "REVIEWER"]);
+
+function decisionErrorMessage(err: unknown): string {
+  if (!(err instanceof Error)) return "Action failed";
+  const status = (err as Error & { status?: number }).status;
+  if (status === 409) return `Stale revision (409): ${err.message}`;
+  if (status === 422) return `Guardian blocked (422): ${err.message}`;
+  if (status === 403) return `Forbidden (403): ${err.message}`;
+  return err.message;
 }
 
 function StatCard({ label, value }: { label: string; value: string | number }) {
@@ -33,6 +63,178 @@ function StatCard({ label, value }: { label: string; value: string | number }) {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+type CommentAction = "reject" | "revision";
+
+function ApprovalQueuePanel({ items }: { items: DashboardQueueItem[] }) {
+  const { data: session } = useSession();
+  const canApprove = APPROVE_ROLES.has(session?.user?.role ?? "");
+  const approve = useApproveContent();
+  const reject = useRejectContent();
+  const requestRevision = useRequestRevision();
+  const busy = approve.isPending || reject.isPending || requestRevision.isPending;
+
+  const [commentForId, setCommentForId] = useState<string | null>(null);
+  const [commentKind, setCommentKind] = useState<CommentAction>("reject");
+  const [comment, setComment] = useState("");
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const openComment = (id: string, kind: CommentAction) => {
+    setCommentForId(id);
+    setCommentKind(kind);
+    setComment("");
+    setActionError(null);
+  };
+
+  const runApprove = async (item: DashboardQueueItem) => {
+    if (!item.currentRevisionId) return;
+    setActionError(null);
+    setCommentForId(null);
+    try {
+      await approve.mutateAsync({
+        contentId: item.id,
+        revisionId: item.currentRevisionId,
+      });
+    } catch (err) {
+      setActionError(decisionErrorMessage(err));
+    }
+  };
+
+  const runCommentAction = async (item: DashboardQueueItem) => {
+    if (!item.currentRevisionId) return;
+    const trimmed = comment.trim();
+    if (!trimmed) {
+      setActionError("Comment required for reject / request revision");
+      return;
+    }
+    setActionError(null);
+    try {
+      if (commentKind === "reject") {
+        await reject.mutateAsync({
+          contentId: item.id,
+          revisionId: item.currentRevisionId,
+          comment: trimmed,
+        });
+      } else {
+        await requestRevision.mutateAsync({
+          contentId: item.id,
+          revisionId: item.currentRevisionId,
+          comment: trimmed,
+        });
+      }
+      setCommentForId(null);
+      setComment("");
+    } catch (err) {
+      setActionError(decisionErrorMessage(err));
+    }
+  };
+
+  if (!items.length) {
+    return <p className="text-sm text-muted-foreground">No pending items.</p>;
+  }
+
+  return (
+    <div className="space-y-2">
+      {actionError && (
+        <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          {actionError}
+        </p>
+      )}
+      {!canApprove && (
+        <p className="text-xs text-muted-foreground">
+          Your role cannot approve (EDITOR/VIEWER → open Queue to review only).
+        </p>
+      )}
+      <div className="divide-y divide-border">
+        {items.slice(0, 5).map((item) => {
+          const revisionReady = Boolean(item.currentRevisionId);
+          const commenting = commentForId === item.id;
+          return (
+            <div key={item.id} className="space-y-2 py-2.5 first:pt-0 last:pb-0">
+              <div className="flex items-start gap-3">
+                <div className="min-w-0 flex-1">
+                  <Link
+                    href="/queue"
+                    className="truncate text-sm font-medium transition-colors hover:text-foreground/80"
+                  >
+                    {item.title}
+                  </Link>
+                  <div className="text-xs text-muted-foreground">
+                    {item.author?.name || "Unknown"} · {item.channel}
+                  </div>
+                </div>
+                <Badge variant="warning">{item.guardianScore}/100</Badge>
+              </div>
+              {canApprove && (
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    disabled={!revisionReady || busy}
+                    onClick={() => void runApprove(item)}
+                  >
+                    Approve
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    disabled={!revisionReady || busy}
+                    onClick={() => openComment(item.id, "reject")}
+                  >
+                    Reject
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!revisionReady || busy}
+                    onClick={() => openComment(item.id, "revision")}
+                  >
+                    Revision
+                  </Button>
+                </div>
+              )}
+              {commenting && (
+                <div className="space-y-2 rounded-md border border-border bg-secondary/40 p-2.5">
+                  <label className="block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
+                    Comment ({commentKind === "reject" ? "reject" : "request revision"})
+                  </label>
+                  <textarea
+                    className="min-h-[64px] w-full rounded-md border border-border bg-card px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring"
+                    value={comment}
+                    onChange={(e) => setComment(e.target.value)}
+                    placeholder="Required"
+                    autoFocus
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant={commentKind === "reject" ? "destructive" : "outline"}
+                      disabled={busy || !comment.trim()}
+                      onClick={() => void runCommentAction(item)}
+                    >
+                      Confirm {commentKind === "reject" ? "reject" : "revision"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() => {
+                        setCommentForId(null);
+                        setComment("");
+                        setActionError(null);
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -79,23 +281,7 @@ export default function DashboardPage() {
             </Link>
           </CardHeader>
           <CardContent>
-            {!data?.recentQueue?.length ? (
-              <p className="text-sm text-muted-foreground">No pending items.</p>
-            ) : (
-              <div className="divide-y divide-border">
-                {data.recentQueue.slice(0, 5).map((item: any) => (
-                  <div key={item.id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium">{item.title}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {item.author?.name || "Unknown"} · {item.channel}
-                      </div>
-                    </div>
-                    <Badge variant="warning">{item.guardianScore}/100</Badge>
-                  </div>
-                ))}
-              </div>
-            )}
+            <ApprovalQueuePanel items={data?.recentQueue ?? []} />
           </CardContent>
         </Card>
 
@@ -145,7 +331,7 @@ export default function DashboardPage() {
           {!data?.upcoming?.length ? (
             <p className="text-sm text-muted-foreground">Nothing scheduled.</p>
           ) : (
-<ResponsiveTable
+            <ResponsiveTable
               rows={data.upcoming}
               rowKey={(item) => item.id}
               tdClassName="py-2.5"
