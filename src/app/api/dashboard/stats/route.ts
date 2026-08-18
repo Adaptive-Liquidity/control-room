@@ -13,7 +13,21 @@ export async function GET() {
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const stats = await contentService.getDashboardStats();
     const [recentQueue, upcoming, agents] = await Promise.all([
-      prisma.content.findMany({ where: { status: 'PENDING_REVIEW' }, include: { author: { select: { name: true, email: true } } }, orderBy: { createdAt: 'desc' }, take: 5 }),
+      prisma.content.findMany({
+        where: { status: 'PENDING_REVIEW' },
+        select: {
+          id: true,
+          title: true,
+          channel: true,
+          status: true,
+          origin: true,
+          guardianScore: true,
+          currentRevisionId: true,
+          author: { select: { name: true, email: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      }),
       prisma.content.findMany({ where: { status: 'SCHEDULED' }, orderBy: { scheduledAt: 'asc' }, take: 5 }),
       agentService.getAll(),
     ]);
