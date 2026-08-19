@@ -27,6 +27,69 @@ const pageTitles: Record<string, { title: string; subtitle: string }> = {
   "/settings": { title: "Settings", subtitle: "Workspace configuration" },
 };
 
+function HeaderActions({ pathname }: { pathname: string }) {
+  if (pathname === "/queue") {
+    return (
+      <>
+        <Button asChild variant="outline" size="sm" className="h-8 text-xs font-medium">
+          <Link href="/studio">New draft</Link>
+        </Button>
+        <Button asChild size="sm" className="h-8 text-xs font-medium">
+          <Link href="/queue">Review pending</Link>
+        </Button>
+      </>
+    );
+  }
+
+  if (pathname === "/studio") {
+    return (
+      <>
+        <Button asChild variant="outline" size="sm" className="h-8 text-xs font-medium">
+          <Link href="/queue">Open queue</Link>
+        </Button>
+        <Button asChild size="sm" className="h-8 text-xs font-medium">
+          <Link href="/studio">Continue draft</Link>
+        </Button>
+      </>
+    );
+  }
+
+  if (pathname === "/calendar") {
+    return (
+      <Button asChild size="sm" className="h-8 text-xs font-medium">
+        <Link href="/studio">Schedule content</Link>
+      </Button>
+    );
+  }
+
+  if (pathname === "/library") {
+    return (
+      <Button asChild size="sm" className="h-8 text-xs font-medium">
+        <Link href="/settings">Storage settings</Link>
+      </Button>
+    );
+  }
+
+  if (pathname === "/analytics" || pathname === "/attribution") {
+    return (
+      <Button asChild variant="outline" size="sm" className="h-8 text-xs font-medium">
+        <Link href="/queue">View published</Link>
+      </Button>
+    );
+  }
+
+  return (
+    <>
+      <Button asChild variant="outline" size="sm" className="h-8 text-xs font-medium">
+        <Link href="/studio">New content</Link>
+      </Button>
+      <Button asChild size="sm" className="h-8 text-xs font-medium">
+        <Link href="/campaigns">New campaign</Link>
+      </Button>
+    </>
+  );
+}
+
 export function Header() {
   const pathname = usePathname();
   const pageInfo = pageTitles[pathname] || { title: "AEON", subtitle: "" };
@@ -43,12 +106,7 @@ export function Header() {
       </div>
       <div className="flex items-center gap-2">
         <div className="hidden items-center gap-2 md:flex">
-          <Button asChild variant="outline" size="sm" className="h-8 text-xs font-medium">
-            <Link href="/studio">New content</Link>
-          </Button>
-          <Button asChild size="sm" className="h-8 text-xs font-medium">
-            <Link href="/campaigns">New campaign</Link>
-          </Button>
+          <HeaderActions pathname={pathname} />
         </div>
         <div className="md:hidden">
           <DropdownMenu>
@@ -60,6 +118,9 @@ export function Header() {
             <DropdownMenuContent align="end">
               <DropdownMenuItem asChild>
                 <Link href="/studio">New content</Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/queue">Approval queue</Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link href="/campaigns">New campaign</Link>

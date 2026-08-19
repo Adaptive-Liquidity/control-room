@@ -202,8 +202,8 @@ export class MetricsService {
     const approvalDenom = approved + rejected;
     const approvalRate = approvalDenom ? Math.round((approved / approvalDenom) * 100) : null;
 
-    const byChannel = (['TWITTER', 'LINKEDIN', 'DISCORD', 'EMAIL', 'BLOG'] as Channel[]).map(
-      (channel) => {
+    const byChannel = (['TWITTER', 'LINKEDIN', 'DISCORD', 'EMAIL', 'BLOG'] as Channel[])
+      .map((channel) => {
         const pieces = contents.filter((c) => c.channel === channel);
         const channelSnaps = snapshots.filter((s) => s.channel === channel);
         const chImp =
@@ -224,8 +224,18 @@ export class MetricsService {
           signups: chSignups,
           topPerformer: top?.title ?? null,
         };
-      }
-    );
+      })
+      .filter((row) => row.pieces > 0 || row.impressions > 0);
+
+    const seriesMap = new Map<string, { date: string; impressions: number; engagements: number }>();
+    for (const s of snapshots) {
+      const day = s.observedAt.toISOString().slice(0, 10);
+      const row = seriesMap.get(day) ?? { date: day, impressions: 0, engagements: 0 };
+      row.impressions += s.impressions;
+      row.engagements += s.engagements;
+      seriesMap.set(day, row);
+    }
+    const series = Array.from(seriesMap.values()).sort((a, b) => a.date.localeCompare(b.date));
 
     return {
       windowDays: days,
@@ -238,7 +248,9 @@ export class MetricsService {
         integrations: totals.integrations,
       },
       channels: byChannel,
+      series,
       snapshotCount: snapshots.length,
+      dataSource: snapshots.length > 0 ? 'ingested_snapshots' : 'content_cache',
     };
   }
 

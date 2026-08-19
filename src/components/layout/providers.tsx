@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SessionProvider } from "next-auth/react";
 import { useState } from "react";
 import { useRealtime } from "@/hooks/useRealtime";
+import { Toaster } from "@/components/ui/toaster";
 
 function RealtimeSubscriber({ children }: { children: React.ReactNode }) {
   useRealtime();
@@ -27,6 +28,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <SessionProvider>
       <QueryClientProvider client={queryClient}>
         <RealtimeSubscriber>{children}</RealtimeSubscriber>
+        <Toaster />
       </QueryClientProvider>
     </SessionProvider>
   );

@@ -27,6 +27,8 @@ Create at least one active user with role `SERVICE` — draft ingestion attribut
 | `N8N_INGRESS_SECRET` | Control Room + n8n | HMAC for draft / publish-receipt / metrics / attribution / agent-runs ingress |
 | `N8N_RESUME_SECRET` | Control Room + n8n | HMAC for Control Room → n8n Wait resume callbacks (**separate** from ingress) |
 | `N8N_BRIDGE_ENCRYPTION_KEY` | Control Room only | AES-GCM for `N8nBridgeJob.resumeUrlEncrypted` |
+| `N8N_GENERATE_WEBHOOK_URL` | Control Room + n8n | Respond webhook for Studio **Generate with AI** (sync) |
+| `N8N_GENERATE_SECRET` | Control Room + n8n | HMAC for generate requests (falls back to `N8N_INGRESS_SECRET` if unset) |
 | `CRON_SECRET` | Control Room + scheduler | Bearer token for `/api/cron/outbox-drain` |
 | `PUSHER_*` / `NEXT_PUBLIC_PUSHER_*` | Control Room | Optional realtime; UI falls back to polling |
 | `FIREBASE_ADMIN_*` / `NEXT_PUBLIC_FIREBASE_*` | Control Room | Signed asset upload URLs (GCS) |
@@ -379,6 +381,49 @@ Human decisions still commit in PostgreSQL + outbox. When n8n returns, drain out
 ### Pusher unavailable
 
 UI keeps working via React Query `refetchInterval`. Realtime is invalidation-only (IDs); never required for correctness.
+
+---
+
+---
+
+## Studio generate — `POST /api/studio/generate` → n8n Respond webhook
+
+Human-initiated draft assist from Content Studio. Requires session + `content.edit`. **Does not** auto-queue — fills `title` / `body` in the UI; operator still Save / Submit.
+
+### Control Room → n8n request
+
+HMAC uses `N8N_GENERATE_SECRET` (or `N8N_INGRESS_SECRET` if generate secret unset):
+
+| Header | Value |
+|---|---|
+| `X-N8N-Timestamp` | Unix epoch seconds |
+| `X-N8N-Signature` | `hex(HMAC_SHA256(secret, timestamp + "." + rawBody))` |
+| `Content-Type` | `application/json` |
+
+```json
+{
+  "schemaVersion": "1",
+  "channel": "TWITTER",
+  "type": "TWITTER_THREAD",
+  "prompt": "optional brief",
+  "titleHint": "optional"
+}
+```
+
+### n8n → Control Room response (Respond to Webhook node)
+
+```json
+{
+  "title": "Draft title",
+  "body": "Draft body text…",
+  "type": "TWITTER_THREAD",
+  "channel": "TWITTER"
+}
+```
+
+Recommended n8n pattern: **Webhook** (POST) → **Creator LLM** (reuse MKT-03 prompt/parser) → **Respond to Webhook** with JSON above. Register production URL in `N8N_GENERATE_WEBHOOK_URL`.
+
+Cloud workflow (stub — replace Code node with Creator LLM): `https://agentsea.app.n8n.cloud/webhook/aeon-studio-generate` (workflow `AEON Studio Generate`, id `58oYBY2ODlpRYhcc`).
 
 ---
 

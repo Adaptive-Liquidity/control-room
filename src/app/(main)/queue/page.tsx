@@ -7,6 +7,11 @@ import { ChevronLeft } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import { toast } from "@/hooks/use-toast";
 import {
   useApproveContent,
   useQueue,
@@ -105,6 +110,7 @@ export default function QueuePage() {
     },
     onSuccess: (_data, vars) => {
       setScheduledAt("");
+      toast({ title: "Scheduled", description: "Publish time saved.", variant: "success" });
       void qc.invalidateQueries({ queryKey: ["queue"] });
       void qc.invalidateQueries({ queryKey: ["content", vars.contentId] });
       void qc.invalidateQueries({ queryKey: ["calendar"] });
@@ -135,44 +141,54 @@ export default function QueuePage() {
     try {
       if (kind === "approve") {
         await approve.mutateAsync({ contentId: selectedId, revisionId, comment: comment || undefined });
+        toast({ title: "Approved", description: "Content released from queue.", variant: "success" });
       } else if (kind === "reject") {
         if (!comment.trim()) {
           setActionError("Comment required for rejection");
           return;
         }
         await reject.mutateAsync({ contentId: selectedId, revisionId, comment });
+        toast({ title: "Rejected", description: "Author notified via audit trail.", variant: "default" });
       } else {
         if (!comment.trim()) {
           setActionError("Comment required when requesting revision");
           return;
         }
         await requestRevision.mutateAsync({ contentId: selectedId, revisionId, comment });
+        toast({ title: "Revision requested", description: "Sent back to author.", variant: "default" });
       }
       setComment("");
     } catch (err) {
-      setActionError(decisionErrorMessage(err));
+      const msg = decisionErrorMessage(err);
+      setActionError(msg);
+      const status = (err as Error & { status?: number }).status;
+      toast({
+        title: status === 409 || status === 422 ? "Action blocked" : "Action failed",
+        description: msg,
+        variant: "destructive",
+      });
     }
   }
 
   return (
     <div className="grid animate-fade-in gap-5 lg:grid-cols-[1fr_420px]">
       <div className={cn("space-y-5", selectedId ? "hidden lg:block" : "")}>
-        <div className="flex flex-wrap gap-2">
-          {FILTERS.map((f) => (
-            <Button
-              key={f}
-              size="sm"
-              variant={filter === f ? "default" : "outline"}
-              onClick={() => {
-                setFilter(f);
-                setSelectedId(null);
-                setActionError(null);
-              }}
-            >
-              {f.charAt(0).toUpperCase() + f.slice(1)}
-            </Button>
-          ))}
-        </div>
+        <Tabs
+          value={filter}
+          onValueChange={(v) => {
+            setFilter(v as QueueFilter);
+            setSelectedId(null);
+            setActionError(null);
+          }}
+        >
+          <TabsList aria-label="Queue filters">
+            {FILTERS.map((f) => (
+              <TabsTrigger key={f} value={f} aria-selected={filter === f}>
+                {f.charAt(0).toUpperCase() + f.slice(1)}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
 
         {isLoading && (
           <p className="text-sm text-muted-foreground">Loading queue…</p>
@@ -188,7 +204,15 @@ export default function QueuePage() {
           </div>
         )}
         {!isLoading && !isError && items.length === 0 && (
-          <p className="text-sm text-muted-foreground">No items in this filter.</p>
+          <EmptyState
+            title="Queue is clear"
+            reason={
+              filter === "pending"
+                ? "No content waiting for approval."
+                : `No items in the ${filter} filter.`
+            }
+            action={filter === "pending" ? { label: "Open Studio", href: "/studio" } : undefined}
+          />
         )}
 
         <div className="space-y-3">
@@ -397,10 +421,10 @@ export default function QueuePage() {
                       Schedule
                     </label>
                     <div className="flex flex-wrap items-center gap-2">
-                      <input
+                      <Input
                         id="schedule-at"
                         type="datetime-local"
-                        className="h-9 flex-1 rounded-md border border-border bg-card px-3 text-sm outline-none focus:ring-1 focus:ring-ring"
+                        className="flex-1"
                         value={scheduledAt}
                         onChange={(e) => setScheduledAt(e.target.value)}
                       />
@@ -434,8 +458,8 @@ export default function QueuePage() {
                   <label className="mb-1 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground sm:text-[11px]">
                     Comment
                   </label>
-                  <textarea
-                    className="min-h-[72px] w-full rounded-md border border-border bg-card px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring"
+                  <Textarea
+                    className="min-h-[72px]"
                     value={comment}
                     onChange={(e) => setComment(e.target.value)}
                     placeholder="Required for reject / request revision"

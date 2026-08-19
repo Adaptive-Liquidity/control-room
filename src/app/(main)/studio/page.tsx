@@ -3,13 +3,22 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { toast } from "@/hooks/use-toast";
 import { useCreateContent } from "@/hooks/useContent";
-
-const TOOLBAR = ["B", "I", "H1", "H2", "Link", "Image", "Table", "AI"];
 
 const CHANNELS = ["TWITTER", "LINKEDIN", "DISCORD", "EMAIL", "BLOG"] as const;
 const TYPES = [
@@ -56,9 +65,9 @@ export default function StudioPage() {
   const [body, setBody] = useState("");
   const [channel, setChannel] = useState<(typeof CHANNELS)[number]>("TWITTER");
   const [type, setType] = useState<(typeof TYPES)[number]>("TWITTER_THREAD");
+  const [generatePrompt, setGeneratePrompt] = useState("");
   const [guardianResult, setGuardianResult] = useState<GuardianResult | null>(null);
   const [isChecking, setIsChecking] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [savedDraft, setSavedDraft] = useState<SavedDraft | null>(null);
   const [selectedAssetId, setSelectedAssetId] = useState("");
@@ -69,6 +78,45 @@ export default function StudioPage() {
     setSavedDraft(null);
     setAttachMessage(null);
   }
+
+  const generate = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/studio/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channel,
+          type,
+          ...(generatePrompt.trim() ? { prompt: generatePrompt.trim() } : {}),
+          ...(title.trim() ? { titleHint: title.trim() } : {}),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Generate failed (${res.status})`);
+      return data as { title: string; body: string; type?: string; channel?: string };
+    },
+    onSuccess: (data) => {
+      setTitle(data.title);
+      setBody(data.body);
+      if (data.type && TYPES.includes(data.type as (typeof TYPES)[number])) {
+        setType(data.type as (typeof TYPES)[number]);
+      }
+      if (data.channel && CHANNELS.includes(data.channel as (typeof CHANNELS)[number])) {
+        setChannel(data.channel as (typeof CHANNELS)[number]);
+      }
+      invalidateSavedDraft();
+      toast({
+        title: "Draft generated",
+        description: "Review and edit before saving or submitting.",
+        variant: "success",
+      });
+    },
+    onError: (e) => {
+      const msg = e instanceof Error ? e.message : "Generate failed";
+      setError(msg);
+      toast({ title: "Generate failed", description: msg, variant: "destructive" });
+    },
+  });
 
   const { data: assets } = useQuery<{ items: AssetRow[] }>({
     queryKey: ["assets", "studio"],
@@ -93,8 +141,8 @@ export default function StudioPage() {
         }),
       });
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Attach failed (${res.status})`);
+        const payload = await res.json().catch(() => ({}));
+        throw new Error(payload.error || `Attach failed (${res.status})`);
       }
       return res.json();
     },
@@ -102,6 +150,7 @@ export default function StudioPage() {
       setAttachMessage("Asset attached to the current revision");
       setSelectedAssetId("");
       setAltText("");
+      toast({ title: "Asset attached", variant: "success" });
     },
     onError: (e) => setAttachMessage(e instanceof Error ? e.message : "Attach failed"),
   });
@@ -126,7 +175,6 @@ export default function StudioPage() {
 
   const save = async (status: "DRAFT" | "PENDING_REVIEW") => {
     setError(null);
-    setMessage(null);
     if (!title.trim() || !body.trim()) {
       setError("Title and body are required");
       return;
@@ -143,16 +191,18 @@ export default function StudioPage() {
         setSavedDraft({ contentId: content.id, revisionId: content.currentRevisionId });
         setAttachMessage(null);
       }
-      setMessage(
-        status === "DRAFT"
-          ? `Draft saved (${content.id})`
-          : `Submitted for approval (${content.id})`
-      );
+      toast({
+        title: status === "DRAFT" ? "Draft saved" : "Submitted for approval",
+        description: content.id,
+        variant: "success",
+      });
       if (status === "PENDING_REVIEW") {
         router.push("/queue");
       }
     } catch (e) {
-      setError(apiErrorMessage(e));
+      const msg = apiErrorMessage(e);
+      setError(msg);
+      toast({ title: "Save failed", description: msg, variant: "destructive" });
     }
   };
 
@@ -160,20 +210,11 @@ export default function StudioPage() {
     <div className="grid animate-fade-in grid-cols-1 gap-5 xl:grid-cols-[1fr_380px]">
       <div>
         <Card className="overflow-hidden">
-          <div className="flex flex-wrap items-center gap-2 border-b border-border p-3">
-            {TOOLBAR.map((btn) => (
-              <button
-                key={btn}
-                type="button"
-                className="rounded-md border border-border bg-secondary px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-secondary/80 hover:text-foreground sm:px-2.5 sm:py-1"
-              >
-                {btn}
-              </button>
-            ))}
+          <div className="border-b border-border bg-secondary/30 px-4 py-2 text-xs text-muted-foreground">
+            Plain-text editor — rich formatting toolbar disabled until markdown support ships.
           </div>
           <div className="space-y-3 border-b border-border p-4">
-            <input
-              className="h-11 w-full rounded-md border border-border bg-card px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring sm:h-auto"
+            <Input
               placeholder="Title"
               value={title}
               onChange={(e) => {
@@ -182,39 +223,64 @@ export default function StudioPage() {
               }}
             />
             <div className="flex flex-wrap gap-3">
-              <select
-                className="h-11 rounded-md border border-border bg-card px-3 py-2 text-sm outline-none sm:h-auto sm:text-xs"
+              <Select
                 value={channel}
-                onChange={(e) => {
-                  setChannel(e.target.value as (typeof CHANNELS)[number]);
+                onValueChange={(v) => {
+                  setChannel(v as (typeof CHANNELS)[number]);
                   invalidateSavedDraft();
                 }}
               >
-                {CHANNELS.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="h-11 rounded-md border border-border bg-card px-3 py-2 text-sm outline-none sm:h-auto sm:text-xs"
+                <SelectTrigger className="w-[140px]">
+                  <SelectValue placeholder="Channel" />
+                </SelectTrigger>
+                <SelectContent>
+                  {CHANNELS.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
                 value={type}
-                onChange={(e) => {
-                  setType(e.target.value as (typeof TYPES)[number]);
+                onValueChange={(v) => {
+                  setType(v as (typeof TYPES)[number]);
                   invalidateSavedDraft();
                 }}
               >
-                {TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="Type" />
+                </SelectTrigger>
+                <SelectContent>
+                  {TYPES.map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {t}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+              <Textarea
+                placeholder="Optional brief for AI (topic, tone, audience…)"
+                value={generatePrompt}
+                onChange={(e) => setGeneratePrompt(e.target.value)}
+                className="min-h-[60px] flex-1"
+              />
+              <Button
+                variant="outline"
+                disabled={generate.isPending}
+                onClick={() => generate.mutate()}
+                className="w-full shrink-0 sm:w-auto"
+              >
+                <Sparkles className="mr-1.5 h-4 w-4" />
+                {generate.isPending ? "Generating…" : "Generate with AI"}
+              </Button>
             </div>
           </div>
-          <textarea
-            className="min-h-[280px] w-full resize-y border-none bg-card p-5 text-sm leading-relaxed outline-none sm:min-h-[400px]"
-            placeholder="Start writing... The Guardian Agent will pre-flight check your content before submission."
+          <Textarea
+            className="min-h-[280px] resize-y rounded-none border-0 bg-card focus-visible:ring-0 sm:min-h-[400px]"
+            placeholder="Start writing… Run Guardian before submit. AI fills title and body — you still save or submit manually."
             value={body}
             onChange={(e) => {
               setBody(e.target.value);
@@ -224,7 +290,6 @@ export default function StudioPage() {
         </Card>
         <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
           {error && <p className="mr-auto text-xs text-destructive">{error}</p>}
-          {message && !error && <p className="mr-auto text-xs text-muted-foreground">{message}</p>}
           <Button
             variant="outline"
             disabled={createContent.isPending}
@@ -233,7 +298,12 @@ export default function StudioPage() {
           >
             Save Draft
           </Button>
-          <Button variant="outline" onClick={() => void handleCheck()} disabled={isChecking || !body.trim()} className="w-full sm:w-auto">
+          <Button
+            variant="outline"
+            onClick={() => void handleCheck()}
+            disabled={isChecking || !body.trim()}
+            className="w-full sm:w-auto"
+          >
             {isChecking ? "Checking..." : "Run Guardian Check"}
           </Button>
           <Button
@@ -268,8 +338,13 @@ export default function StudioPage() {
                   </Badge>
                 )}
                 {Object.entries(guardianResult.checks || {}).map(([key, passed]) => (
-                  <div key={key} className="flex items-center gap-2 border-b border-border py-1.5 last:border-0">
-                    <Badge variant={passed ? "success" : "destructive"}>{passed ? "Pass" : "Fail"}</Badge>
+                  <div
+                    key={key}
+                    className="flex items-center gap-2 border-b border-border py-1.5 last:border-0"
+                  >
+                    <Badge variant={passed ? "success" : "destructive"}>
+                      {passed ? "Pass" : "Fail"}
+                    </Badge>
                     <span className="text-xs text-muted-foreground">
                       {key.replace(/([A-Z])/g, " $1").replace(/^./, (str) => str.toUpperCase())}
                     </span>
@@ -297,7 +372,7 @@ export default function StudioPage() {
           </CardHeader>
           <CardContent>
             <div className="mb-2 text-sm font-medium">{title || "Untitled"}</div>
-            <div className="text-sm leading-relaxed text-muted-foreground whitespace-pre-wrap">
+            <div className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
               {body || <span className="italic">Start typing to see preview...</span>}
             </div>
           </CardContent>
@@ -310,31 +385,26 @@ export default function StudioPage() {
           <CardContent className="space-y-3 text-xs text-muted-foreground">
             {!savedDraft ? (
               <p>
-                Upload via Library (signed GCS URL). Save a draft first — assets attach to a
-                content revision.
+                Upload via Library (signed GCS URL). Save a draft first — assets attach to a content
+                revision.
               </p>
             ) : (
               <div className="space-y-2">
                 <p className="font-mono text-[11px]">revision {savedDraft.revisionId}</p>
-                <select
-                  aria-label="Asset to attach"
-                  className="h-9 w-full rounded-md border border-border bg-card px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
-                  value={selectedAssetId}
-                  onChange={(e) => {
-                    setSelectedAssetId(e.target.value);
-                    setAttachMessage(null);
-                  }}
-                >
-                  <option value="">Select an asset…</option>
-                  {(assets?.items ?? []).map((asset) => (
-                    <option key={asset.id} value={asset.id}>
-                      {asset.originalFilename}
-                    </option>
-                  ))}
-                </select>
-                <input
+                <Select value={selectedAssetId} onValueChange={setSelectedAssetId}>
+                  <SelectTrigger aria-label="Asset to attach">
+                    <SelectValue placeholder="Select an asset…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(assets?.items ?? []).map((asset) => (
+                      <SelectItem key={asset.id} value={asset.id}>
+                        {asset.originalFilename}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input
                   aria-label="Alt text"
-                  className="h-9 w-full rounded-md border border-border bg-card px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
                   placeholder="Alt text (optional)"
                   value={altText}
                   onChange={(e) => setAltText(e.target.value)}
