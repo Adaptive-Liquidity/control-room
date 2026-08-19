@@ -19,6 +19,8 @@ next-env.d.ts
 .env.production.local
 .env.vercel.production
 .env.vercel.*
+.n8n-paste-once.txt
+scripts/.tmp-env-keys.json
 *.pem
 
 # debug / logs
