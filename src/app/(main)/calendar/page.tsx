@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { cn } from "@/lib/utils";
 
 interface CalendarEvent {
   id: string;
@@ -31,6 +33,7 @@ function channelDot(channel?: string): string {
 
 export default function CalendarPage() {
   const [cursor, setCursor] = useState(() => startOfMonth(new Date()));
+  const [selectedDay, setSelectedDay] = useState<number | null>(() => new Date().getDate());
 
   const from = startOfMonth(cursor);
   const to = endOfMonth(cursor);
@@ -60,16 +63,13 @@ export default function CalendarPage() {
     return map;
   }, [data]);
 
-  const agenda = useMemo(
-    () => Array.from(byDay.entries()).sort(([a], [b]) => a - b),
-    [byDay]
-  );
-
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const startWeekday = new Date(year, month, 1).getDay();
   const label = cursor.toLocaleString(undefined, { month: "long", year: "numeric" });
+
+  const selectedEvents = selectedDay != null ? byDay.get(selectedDay) ?? [] : [];
 
   const cells: React.ReactNode[] = [];
   for (let i = 0; i < startWeekday; i++) {
@@ -77,14 +77,21 @@ export default function CalendarPage() {
   }
   for (let day = 1; day <= daysInMonth; day++) {
     const events = byDay.get(day) ?? [];
+    const isSelected = selectedDay === day;
     cells.push(
-      <div
+      <button
         key={day}
-        className={`aspect-square rounded-md border p-2 text-[11px] transition-colors ${
+        type="button"
+        onClick={() => setSelectedDay(day)}
+        className={cn(
+          "aspect-square rounded-md border p-2 text-left text-[11px] transition-colors",
           events.length
             ? "border-primary/30 bg-primary/5 hover:bg-primary/10"
-            : "border-border bg-card hover:bg-secondary/50"
-        }`}
+            : "border-border bg-card hover:bg-secondary/50",
+          isSelected && "ring-2 ring-ring ring-offset-2 ring-offset-background"
+        )}
+        aria-pressed={isSelected}
+        aria-label={`${label} day ${day}, ${events.length} events`}
       >
         <div className="font-medium">{day}</div>
         {events.length > 0 && (
@@ -98,12 +105,12 @@ export default function CalendarPage() {
             ))}
           </div>
         )}
-      </div>
+      </button>
     );
   }
 
   return (
-    <div className="animate-fade-in">
+    <div className="animate-fade-in grid gap-5 lg:grid-cols-[1fr_320px]">
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
           <CardTitle>Content calendar — {label}</CardTitle>
@@ -111,23 +118,27 @@ export default function CalendarPage() {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => setCursor(new Date(year, month - 1, 1))}
+              onClick={() => {
+                setCursor(new Date(year, month - 1, 1));
+                setSelectedDay(null);
+              }}
             >
               Prev
             </Button>
             <Button
               size="sm"
               variant="outline"
-              onClick={() => setCursor(new Date(year, month + 1, 1))}
+              onClick={() => {
+                setCursor(new Date(year, month + 1, 1));
+                setSelectedDay(null);
+              }}
             >
               Next
             </Button>
           </div>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
-            <p className="mb-3 text-sm text-muted-foreground">Loading…</p>
-          ) : null}
+          {isLoading ? <p className="mb-3 text-sm text-muted-foreground">Loading…</p> : null}
           <div className="mb-2 hidden grid-cols-7 gap-1 md:grid">
             {["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"].map((d) => (
               <div
@@ -142,35 +153,41 @@ export default function CalendarPage() {
             {cells}
           </div>
           <div data-testid="calendar-agenda" className="md:hidden">
-            {!isLoading && agenda.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Nothing scheduled this month.</p>
+            {!isLoading && byDay.size === 0 ? (
+              <EmptyState
+                title="Nothing scheduled"
+                reason="No publish dates this month."
+                action={{ label: "Open Studio", href: "/studio" }}
+              />
             ) : (
               <div className="space-y-2">
-                {agenda.map(([day, events]) => (
-                  <div
-                    key={day}
-                    className="flex gap-3 rounded-md border border-border bg-card p-3"
-                  >
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-secondary">
-                      <span className="text-sm font-semibold tabular-nums">{day}</span>
+                {Array.from(byDay.entries())
+                  .sort(([a], [b]) => a - b)
+                  .map(([day, events]) => (
+                    <div
+                      key={day}
+                      className="flex gap-3 rounded-md border border-border bg-card p-3"
+                    >
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-secondary">
+                        <span className="text-sm font-semibold tabular-nums">{day}</span>
+                      </div>
+                      <div className="min-w-0 flex-1 space-y-1">
+                        {events.map((e) => (
+                          <div key={e.id} className="flex items-center gap-2 text-sm">
+                            <span
+                              className={`h-2 w-2 shrink-0 rounded-full ${channelDot(e.channel)}`}
+                            />
+                            <span className="truncate">{e.title}</span>
+                            {e.status && (
+                              <span className="ml-auto shrink-0 text-[10px] uppercase text-muted-foreground">
+                                {e.status}
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                    <div className="min-w-0 flex-1 space-y-1">
-                      {events.map((e) => (
-                        <div key={e.id} className="flex items-center gap-2 text-sm">
-                          <span
-                            className={`h-2 w-2 shrink-0 rounded-full ${channelDot(e.channel)}`}
-                          />
-                          <span className="truncate">{e.title}</span>
-                          {e.status && (
-                            <span className="ml-auto shrink-0 text-[10px] uppercase text-muted-foreground">
-                              {e.status}
-                            </span>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
+                  ))}
               </div>
             )}
           </div>
@@ -187,9 +204,45 @@ export default function CalendarPage() {
           </div>
           {(data?.campaigns?.length ?? 0) > 0 && (
             <div className="mt-4 border-t border-border pt-3 text-xs text-muted-foreground">
-              Active campaign windows this month:{" "}
-              {data!.campaigns.map((c) => c.title).join(", ")}
+              Active campaign windows this month: {data!.campaigns.map((c) => c.title).join(", ")}
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="hidden lg:block">
+        <CardHeader>
+          <CardTitle>
+            {selectedDay != null ? `${label} — day ${selectedDay}` : "Select a day"}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {selectedDay == null ? (
+            <p className="text-sm text-muted-foreground">Click a day on the calendar to see its agenda.</p>
+          ) : selectedEvents.length === 0 ? (
+            <EmptyState
+              title="No events"
+              reason={`Nothing scheduled on ${selectedDay} ${label}.`}
+              action={{ label: "Draft content", href: "/studio" }}
+            />
+          ) : (
+            <ul className="space-y-2">
+              {selectedEvents.map((e) => (
+                <li
+                  key={e.id}
+                  className="flex items-start gap-2 rounded-md border border-border bg-secondary/30 p-3 text-sm"
+                >
+                  <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${channelDot(e.channel)}`} />
+                  <div className="min-w-0">
+                    <div className="font-medium">{e.title}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {e.channel ?? e.kind}
+                      {e.status ? ` · ${e.status}` : ""}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
           )}
         </CardContent>
       </Card>

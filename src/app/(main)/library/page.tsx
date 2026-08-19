@@ -1,8 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { IntegrationStrip } from "@/components/layout/integration-strip";
 import { useAssetUpload, useAssets } from "@/hooks/useAssets";
 
 function formatBytes(n: number): string {
@@ -25,8 +29,24 @@ export default function LibraryPage() {
   const { data, isLoading } = useAssets();
   const upload = useAssetUpload();
 
+  const { data: health } = useQuery({
+    queryKey: ["integration-health-library"],
+    queryFn: async () => {
+      const res = await fetch("/api/integrations/health");
+      if (!res.ok) throw new Error("Health check failed");
+      return res.json() as Promise<{ storage: { configured: boolean } }>;
+    },
+    staleTime: 60_000,
+  });
+
+  const storageReady = health?.storage?.configured ?? true;
+
   const onPick = async (file: File | null) => {
     if (!file) return;
+    if (!storageReady) {
+      setError("Object storage is not configured — configure in Settings first.");
+      return;
+    }
     setError(null);
     try {
       await upload.mutateAsync(file);
@@ -37,14 +57,29 @@ export default function LibraryPage() {
 
   return (
     <div className="animate-fade-in space-y-4">
+      <IntegrationStrip />
+
+      {!storageReady && (
+        <EmptyState
+          title="Uploads unavailable"
+          reason="GCS / Firebase storage credentials are missing. Upload is blocked until configured."
+          action={{ label: "Open Settings", href: "/settings" }}
+        />
+      )}
+
       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
         <input
           ref={fileRef}
           type="file"
           className="hidden"
+          disabled={!storageReady}
           onChange={(e) => void onPick(e.target.files?.[0] ?? null)}
         />
-        <Button size="sm" disabled={upload.isPending} onClick={() => fileRef.current?.click()}>
+        <Button
+          size="sm"
+          disabled={!storageReady || upload.isPending}
+          onClick={() => storageReady && fileRef.current?.click()}
+        >
           {upload.isPending ? "Uploading…" : "Upload asset"}
         </Button>
         <span className="text-xs text-muted-foreground">
@@ -60,11 +95,15 @@ export default function LibraryPage() {
           ))}
         </div>
       ) : !data?.items?.length ? (
-        <Card>
-          <CardContent className="p-6 text-sm text-muted-foreground">
-            No assets yet. Upload a file to populate the library.
-          </CardContent>
-        </Card>
+        <EmptyState
+          title="Library empty"
+          reason={
+            storageReady
+              ? "Upload approved assets for use in Studio revisions."
+              : "Configure storage, then upload files."
+          }
+          action={storageReady ? undefined : { label: "Settings", href: "/settings" }}
+        />
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {data.items.map((asset) => (
@@ -81,6 +120,9 @@ export default function LibraryPage() {
                   {asset.uploadedBy?.name || asset.uploadedBy?.email || "Unknown"} ·{" "}
                   {new Date(asset.createdAt).toLocaleDateString()}
                 </div>
+                <Link href="/studio" className="mt-2 inline-block text-xs text-primary hover:underline">
+                  Attach in Studio →
+                </Link>
               </CardContent>
             </Card>
           ))}

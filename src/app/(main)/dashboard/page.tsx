@@ -7,8 +7,17 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Textarea } from "@/components/ui/textarea";
 import { StatusDot } from "@/components/ui/status-dot";
 import { ResponsiveTable } from "@/components/ui/responsive-table";
+import { IntegrationStrip } from "@/components/layout/integration-strip";
+import { toast } from "@/hooks/use-toast";
+import {
+  agentStatusDot,
+  agentStatusLabel,
+  mcpStatusLabel,
+} from "@/lib/agent-status";
 import {
   useApproveContent,
   useRejectContent,
@@ -97,8 +106,11 @@ function ApprovalQueuePanel({ items }: { items: DashboardQueueItem[] }) {
         contentId: item.id,
         revisionId: item.currentRevisionId,
       });
+      toast({ title: "Approved", description: item.title, variant: "success" });
     } catch (err) {
-      setActionError(decisionErrorMessage(err));
+      const msg = decisionErrorMessage(err);
+      setActionError(msg);
+      toast({ title: "Action failed", description: msg, variant: "destructive" });
     }
   };
 
@@ -126,13 +138,25 @@ function ApprovalQueuePanel({ items }: { items: DashboardQueueItem[] }) {
       }
       setCommentForId(null);
       setComment("");
+      toast({
+        title: commentKind === "reject" ? "Rejected" : "Revision requested",
+        description: item.title,
+      });
     } catch (err) {
-      setActionError(decisionErrorMessage(err));
+      const msg = decisionErrorMessage(err);
+      setActionError(msg);
+      toast({ title: "Action failed", description: msg, variant: "destructive" });
     }
   };
 
   if (!items.length) {
-    return <p className="text-sm text-muted-foreground">No pending items.</p>;
+    return (
+      <EmptyState
+        title="Nothing pending"
+        reason="The approval queue is empty — drafts appear here after submit or n8n ingress."
+        action={{ label: "Open queue", href: "/queue" }}
+      />
+    );
   }
 
   return (
@@ -199,12 +223,12 @@ function ApprovalQueuePanel({ items }: { items: DashboardQueueItem[] }) {
                   <label className="block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
                     Comment ({commentKind === "reject" ? "reject" : "request revision"})
                   </label>
-                  <textarea
-                    className="min-h-[64px] w-full rounded-md border border-border bg-card px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring"
+                  <Textarea
                     value={comment}
                     onChange={(e) => setComment(e.target.value)}
                     placeholder="Required"
                     autoFocus
+                    className="min-h-[64px]"
                   />
                   <div className="flex flex-wrap gap-2">
                     <Button
@@ -263,6 +287,7 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-5 animate-fade-in">
+      <IntegrationStrip />
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <StatCard label="Pending approvals" value={stats?.pendingApprovals || 0} />
         <StatCard label="Scheduled" value={stats?.scheduledPosts || 0} />
@@ -294,23 +319,31 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             {!data?.agents?.length ? (
-              <p className="text-sm text-muted-foreground">No agents registered yet.</p>
+              <EmptyState
+                title="No agents yet"
+                reason="Agent runs from n8n will populate telemetry here."
+                action={{ label: "View agents", href: "/agents" }}
+              />
             ) : (
               <div className="divide-y divide-border">
                 {data.agents.map((agent: any) => (
                   <div key={agent.id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
-                    <StatusDot status={agent.status === "ONLINE" || agent.status === "BUSY" ? "online" : agent.status === "ERROR" ? "error" : "offline"} />
+                    <StatusDot status={agentStatusDot(agent.status)} />
                     <div className="min-w-0 flex-1">
                       <div className="text-sm font-medium">{agent.name}</div>
                       <div className="text-xs text-muted-foreground">
-                        {agent.type} · {agent.status}
+                        {agent.type} · {agentStatusLabel(agent.status)}
                         {agent.aggregates24h?.runs != null
                           ? ` · ${agent.aggregates24h.runs} runs/24h`
                           : ""}
                       </div>
                     </div>
-                    <Badge variant={agent.mcpStatus === "CONNECTED" ? "success" : "dim"}>
-                      {agent.mcpStatus === "CONNECTED" ? "MCP" : "Idle"}
+                    <Badge
+                      variant={
+                        agent.mcpStatus === "CONNECTED" ? "success" : "dim"
+                      }
+                    >
+                      {mcpStatusLabel(agent.mcpStatus, agent.mcpEndpoint)}
                     </Badge>
                   </div>
                 ))}
@@ -329,7 +362,11 @@ export default function DashboardPage() {
         </CardHeader>
         <CardContent>
           {!data?.upcoming?.length ? (
-            <p className="text-sm text-muted-foreground">Nothing scheduled.</p>
+            <EmptyState
+              title="Nothing scheduled"
+              reason="Approved content with a schedule date appears here and on Calendar."
+              action={{ label: "Open calendar", href: "/calendar" }}
+            />
           ) : (
             <ResponsiveTable
               rows={data.upcoming}

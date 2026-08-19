@@ -5,6 +5,12 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatusDot } from "@/components/ui/status-dot";
+import {
+  agentStatusBadgeVariant,
+  agentStatusDot,
+  agentStatusLabel,
+  mcpStatusLabel,
+} from "@/lib/agent-status";
 
 interface AgentRow {
   id: string | null;
@@ -38,16 +44,11 @@ interface AgentRow {
 }
 
 function statusVariant(status: string): "success" | "warning" | "destructive" | "secondary" {
-  if (status === "ONLINE") return "success";
-  if (status === "BUSY") return "warning";
-  if (status === "ERROR") return "destructive";
-  return "secondary";
+  return agentStatusBadgeVariant(status);
 }
 
 function statusDot(status: string): "online" | "offline" | "error" {
-  if (status === "ONLINE" || status === "BUSY") return "online";
-  if (status === "ERROR") return "error";
-  return "offline";
+  return agentStatusDot(status);
 }
 
 export default function AgentsPage() {
@@ -112,7 +113,7 @@ export default function AgentsPage() {
                     <CardTitle>{agent.name}</CardTitle>
                   )}
                 </div>
-                <Badge variant={statusVariant(agent.status)}>{agent.status}</Badge>
+                <Badge variant={statusVariant(agent.status)}>{agentStatusLabel(agent.status)}</Badge>
               </CardHeader>
               <CardContent>
                 <div className="mb-4 grid grid-cols-3 gap-3">
@@ -174,15 +175,15 @@ export default function AgentsPage() {
                   agent.mcpStatus === "CONNECTED" ? "border-border" : "border-border opacity-60"
                 }`}
               >
-                <StatusDot status={agent.mcpStatus === "CONNECTED" ? "online" : "error"} />
+                <StatusDot status={agent.mcpStatus === "CONNECTED" ? "online" : "offline"} />
                 <div className="min-w-0 flex-1">
                   <div className="text-sm font-medium">{agent.name}</div>
                   <div className="truncate font-mono text-xs text-muted-foreground sm:text-[10px]">
-                    {agent.mcpEndpoint || "—"}
+                    {agent.mcpEndpoint || "Not configured"}
                   </div>
                 </div>
-                <Badge variant={agent.mcpStatus === "CONNECTED" ? "success" : "destructive"}>
-                  {agent.mcpStatus.toLowerCase()}
+                <Badge variant={agent.mcpStatus === "CONNECTED" ? "success" : "secondary"}>
+                  {mcpStatusLabel(agent.mcpStatus, agent.mcpEndpoint)}
                 </Badge>
               </div>
             ))}
