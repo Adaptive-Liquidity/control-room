@@ -61,6 +61,8 @@ Vercel cron in `vercel.json` is daily (Hobby limit).
 - Build: `npm run build`.
 - E2E: `npm run test:e2e` — set `E2E_WITH_AUTH=1` after seeding users; set
   `E2E_FULL_LIFECYCLE=1` only when staging n8n Wait is available.
+- CI (GitHub Actions): every push/PR to `main` runs lint, typecheck, test, and build
+  (`.github/workflows/ci.yml`). E2E is local/staging only until a Postgres service job is added.
 
 ### Deprecated scripts
 - `npm run db:push` / `npm run db:seed` / `npm run agents:start` exit with guidance
