@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import {
+  ForbiddenProjectError,
+  SetupRequiredError,
+  resolveProjectContext,
+} from '@/lib/project/context';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -10,6 +15,9 @@ export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const ctx = await resolveProjectContext({
+      requestedProjectId: req.headers.get('x-project-id'),
+    });
 
     const { searchParams } = new URL(req.url);
     const fromParam = searchParams.get('from');
@@ -31,6 +39,7 @@ export async function GET(req: NextRequest) {
     const [contentEvents, campaigns] = await Promise.all([
       prisma.content.findMany({
         where: {
+          projectId: ctx.projectId,
           OR: [
             { scheduledAt: { gte: from, lte: to } },
             { publishedAt: { gte: from, lte: to } },
@@ -49,6 +58,7 @@ export async function GET(req: NextRequest) {
       }),
       prisma.campaign.findMany({
         where: {
+          projectId: ctx.projectId,
           startDate: { lte: to },
           OR: [{ endDate: null }, { endDate: { gte: from } }],
         },
@@ -94,6 +104,9 @@ export async function GET(req: NextRequest) {
       campaigns: campaignWindows,
     });
   } catch (error) {
+    if (error instanceof SetupRequiredError || error instanceof ForbiddenProjectError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('GET /api/calendar error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }

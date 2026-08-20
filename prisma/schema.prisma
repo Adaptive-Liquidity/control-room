@@ -19,6 +19,7 @@ model User {
   updatedAt     DateTime  @updatedAt
   lastLoginAt   DateTime?
   isActive      Boolean   @default(true)
+  lastActiveProjectId String?
 
   contents      Content[]
   approvals     Approval[]
@@ -28,8 +29,147 @@ model User {
   assets        Asset[]
   experiments   Experiment[]
   orgSettings   OrgSetting[]
+  memberships   ProjectMember[]
+  companyContextVersions CompanyContextVersion[]
+  projectContextVersions ProjectContextVersion[]
+  createdProjects Project[] @relation("ProjectCreator")
+  createdCompanies Company[] @relation("CompanyCreator")
 
   @@map("users")
+}
+
+model Company {
+  id                     String   @id @default(cuid())
+  slug                   String   @unique
+  name                   String
+  legalName              String?
+  activeContextVersionId String?  @unique
+  activeContextVersion   CompanyContextVersion? @relation("ActiveCompanyContext", fields: [activeContextVersionId], references: [id])
+  setupCompletedAt       DateTime?
+  createdById            String?
+  createdBy              User?    @relation("CompanyCreator", fields: [createdById], references: [id])
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  projects        Project[]
+  contextVersions CompanyContextVersion[] @relation("CompanyVersions")
+  guardianRules   GuardianRule[]
+
+  @@map("companies")
+}
+
+model CompanyContextVersion {
+  id          String        @id @default(cuid())
+  companyId   String
+  company     Company       @relation("CompanyVersions", fields: [companyId], references: [id], onDelete: Cascade)
+  version     Int
+  status      ContextStatus @default(DRAFT)
+  pack        Json
+  contentHash String
+  summary     String?
+  createdById String?
+  createdBy   User?         @relation(fields: [createdById], references: [id])
+  publishedAt DateTime?
+  createdAt   DateTime      @default(now())
+
+  activeFor Company? @relation("ActiveCompanyContext")
+
+  @@unique([companyId, version])
+  @@index([companyId, status])
+  @@map("company_context_versions")
+}
+
+model Project {
+  id                     String        @id @default(cuid())
+  companyId              String
+  company                Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  slug                   String
+  name                   String
+  status                 ProjectStatus @default(ACTIVE)
+  activeContextVersionId String?       @unique
+  activeContextVersion   ProjectContextVersion? @relation("ActiveProjectContext", fields: [activeContextVersionId], references: [id])
+  createdById            String?
+  createdBy              User?         @relation("ProjectCreator", fields: [createdById], references: [id])
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
+
+  members         ProjectMember[]
+  contextVersions ProjectContextVersion[] @relation("ProjectVersions")
+  settings        ProjectSetting[]
+  campaigns       Campaign[]
+  contents        Content[]
+  experiments     Experiment[]
+  assets          Asset[]
+  metricSnapshots MetricSnapshot[]
+  attributionEvents AttributionEvent[]
+  activityLogs    ActivityLog[]
+  agentRuns       AgentRun[]
+  guardianRules   GuardianRule[]
+
+  @@unique([companyId, slug])
+  @@index([companyId, status])
+  @@map("projects")
+}
+
+model ProjectMember {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      UserRole
+  createdAt DateTime @default(now())
+
+  @@unique([projectId, userId])
+  @@index([userId])
+  @@map("project_members")
+}
+
+model ProjectContextVersion {
+  id          String        @id @default(cuid())
+  projectId   String
+  project     Project       @relation("ProjectVersions", fields: [projectId], references: [id], onDelete: Cascade)
+  version     Int
+  status      ContextStatus @default(DRAFT)
+  pack        Json
+  contentHash String
+  summary     String?
+  createdById String?
+  createdBy   User?         @relation(fields: [createdById], references: [id])
+  publishedAt DateTime?
+  createdAt   DateTime      @default(now())
+
+  activeFor Project? @relation("ActiveProjectContext")
+
+  @@unique([projectId, version])
+  @@index([projectId, status])
+  @@map("project_context_versions")
+}
+
+model ProjectSetting {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  key         String
+  value       Json
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  @@unique([projectId, key])
+  @@map("project_settings")
+}
+
+model AgentDepartment {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  name      String
+  isActive  Boolean  @default(true)
+  agents    Agent[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("agent_departments")
 }
 
 model Content {
@@ -40,6 +180,8 @@ model Content {
   status          ContentStatus @default(DRAFT)
   channel         Channel
   campaignId      String?
+  projectId       String
+  project         Project       @relation(fields: [projectId], references: [id])
 
   // Origin / n8n bridge metadata
   origin            ContentOrigin    @default(MANUAL)
@@ -86,6 +228,7 @@ model Content {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
+  @@index([projectId, createdAt])
   @@index([n8nWorkflowId])
   @@index([n8nExecutionId])
   @@map("contents")
@@ -142,6 +285,8 @@ model Campaign {
   startDate     DateTime
   endDate       DateTime?
   budget        Float?
+  projectId     String
+  project       Project         @relation(fields: [projectId], references: [id])
 
   // Brief / control plane
   objective           String?
@@ -168,6 +313,8 @@ model Campaign {
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 
+  @@unique([id, projectId])
+  @@index([projectId, createdAt])
   @@map("campaigns")
 }
 
@@ -179,6 +326,8 @@ model Agent {
   config        Json        // Agent-specific configuration
   metrics       Json?       // { tasksCompleted, successRate, avgLatency }
   lastRunAt     DateTime?
+  departmentId  String?
+  department    AgentDepartment? @relation(fields: [departmentId], references: [id])
 
   // MCP Server connection
   mcpEndpoint   String?
@@ -189,6 +338,7 @@ model Agent {
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
+  @@index([departmentId])
   @@map("agents")
 }
 
@@ -201,11 +351,14 @@ model Asset {
   originalFilename String
   uploadedById     String
   uploadedBy       User     @relation(fields: [uploadedById], references: [id])
+  projectId        String
+  project          Project  @relation(fields: [projectId], references: [id])
   createdAt        DateTime @default(now())
 
   contentAssets ContentAsset[]
 
   @@index([uploadedById])
+  @@index([projectId, createdAt])
   @@map("assets")
 }
 
@@ -244,12 +397,19 @@ model AgentRun {
   startedAt     DateTime?
   finishedAt    DateTime?
   metadata      Json?
+  projectId     String?
+  project       Project?       @relation(fields: [projectId], references: [id])
+  campaignId    String?
+  departmentId  String?
+  contextPackHash String?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
   @@index([agentId, createdAt])
   @@index([workflowId, executionId])
   @@index([status, createdAt])
+  @@index([projectId, createdAt])
+  @@index([campaignId, createdAt])
   @@map("agent_runs")
 }
 
@@ -259,6 +419,8 @@ model MetricSnapshot {
   contentId    String?
   campaignId   String?
   campaign     Campaign? @relation(fields: [campaignId], references: [id])
+  projectId    String
+  project      Project   @relation(fields: [projectId], references: [id])
   channel      Channel?
   observedAt   DateTime
   impressions  Int       @default(0)
@@ -272,6 +434,7 @@ model MetricSnapshot {
 
   @@index([contentId, observedAt])
   @@index([campaignId, observedAt])
+  @@index([projectId, observedAt])
   @@index([observedAt])
   @@map("metric_snapshots")
 }
@@ -283,6 +446,8 @@ model AttributionEvent {
   contentId  String?
   campaignId String?
   campaign   Campaign?       @relation(fields: [campaignId], references: [id])
+  projectId  String
+  project    Project         @relation(fields: [projectId], references: [id])
   occurredAt DateTime
   value      Float?
   currency   String?
@@ -292,6 +457,7 @@ model AttributionEvent {
 
   @@index([contentId, occurredAt])
   @@index([campaignId, occurredAt])
+  @@index([projectId, occurredAt])
   @@index([kind, occurredAt])
   @@map("attribution_events")
 }
@@ -311,12 +477,15 @@ model Experiment {
   confidencePct    Float?           // stored only when computed — never fabricated
   startedAt        DateTime?
   endedAt          DateTime?
+  projectId        String
+  project          Project          @relation(fields: [projectId], references: [id])
   createdById      String
   createdBy        User             @relation(fields: [createdById], references: [id])
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 
   @@index([status])
+  @@index([projectId, createdAt])
   @@map("experiments")
 }
 
@@ -340,8 +509,11 @@ model ActivityLog {
   type        ActivityType
   description String
   metadata    Json?
+  projectId   String?
+  project     Project?      @relation(fields: [projectId], references: [id])
   createdAt   DateTime      @default(now())
 
+  @@index([projectId, createdAt])
   @@map("activity_logs")
 }
 
@@ -354,8 +526,14 @@ model GuardianRule {
   message     String
   autoBlock   Boolean      @default(false)
   isActive    Boolean      @default(true)
+  companyId   String?
+  company     Company?     @relation(fields: [companyId], references: [id])
+  projectId   String?
+  project     Project?     @relation(fields: [projectId], references: [id])
   createdAt   DateTime     @default(now())
 
+  @@index([companyId])
+  @@index([projectId])
   @@map("guardian_rules")
 }
 
@@ -440,6 +618,17 @@ model PublishReceipt {
 }
 
 // Enums
+enum ProjectStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum ContextStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
 enum UserRole {
   ADMIN
   MANAGER

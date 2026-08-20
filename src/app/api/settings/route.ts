@@ -4,6 +4,11 @@ import { z } from 'zod';
 import { authOptions } from '@/lib/auth';
 import { ForbiddenError, requirePermission } from '@/lib/rbac';
 import { prisma } from '@/lib/prisma';
+import {
+  ForbiddenProjectError,
+  SetupRequiredError,
+  resolveProjectContext,
+} from '@/lib/project/context';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -20,10 +25,13 @@ const putSchema = z.object({
   value: z.unknown(),
 });
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    await resolveProjectContext({
+      requestedProjectId: req.headers.get('x-project-id'),
+    });
 
     const settings = await prisma.orgSetting.findMany({
       where: { key: { in: Array.from(SAFE_KEYS) } },
@@ -34,6 +42,9 @@ export async function GET() {
     for (const s of settings) map[s.key] = s.value;
     return NextResponse.json({ settings: map });
   } catch (error) {
+    if (error instanceof SetupRequiredError || error instanceof ForbiddenProjectError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('GET /api/settings error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
@@ -43,6 +54,9 @@ export async function PUT(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
     requirePermission(session, 'settings.manage');
+    const ctx = await resolveProjectContext({
+      requestedProjectId: req.headers.get('x-project-id'),
+    });
 
     const body = putSchema.parse(await req.json());
     if (!SAFE_KEYS.has(body.key)) {
@@ -65,6 +79,7 @@ export async function PUT(req: NextRequest) {
     await prisma.activityLog.create({
       data: {
         userId: session.user.id,
+        projectId: ctx.projectId,
         type: 'SETTINGS_CHANGED',
         description: `Updated setting: ${body.key}`,
         metadata: { key: body.key },
@@ -75,6 +90,9 @@ export async function PUT(req: NextRequest) {
   } catch (error) {
     if (error instanceof ForbiddenError) {
       return NextResponse.json({ error: error.message }, { status: error.statusCode });
+    }
+    if (error instanceof SetupRequiredError || error instanceof ForbiddenProjectError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
     }
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: 'Validation error', details: error.errors }, { status: 400 });

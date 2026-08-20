@@ -15,6 +15,22 @@ import { AgentType, Prisma, PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
+const DEPARTMENTS: Array<{ id: string; key: string; name: string }> = [
+  { id: 'adept_content', key: 'content', name: 'Content' },
+  { id: 'adept_research', key: 'research', name: 'Research' },
+  { id: 'adept_publish', key: 'publish', name: 'Publish' },
+  { id: 'adept_guardian', key: 'guardian', name: 'Guardian' },
+  { id: 'adept_analytics', key: 'analytics', name: 'Analytics' },
+];
+
+const TYPE_TO_DEPARTMENT: Record<AgentType, string> = {
+  CREATOR: 'adept_content',
+  PUBLISHER: 'adept_publish',
+  ANALYZER: 'adept_analytics',
+  GUARDIAN: 'adept_guardian',
+  RESEARCHER: 'adept_research',
+};
+
 type SeedAgent = {
   name: string;
   type: AgentType;
@@ -66,11 +82,29 @@ const AGENTS: SeedAgent[] = [
   },
 ];
 
+async function ensureDepartments() {
+  for (const dept of DEPARTMENTS) {
+    await prisma.agentDepartment.upsert({
+      where: { key: dept.key },
+      update: { name: dept.name, isActive: true },
+      create: {
+        id: dept.id,
+        key: dept.key,
+        name: dept.name,
+        isActive: true,
+      },
+    });
+  }
+}
+
 async function main() {
+  await ensureDepartments();
+
   let created = 0;
   let updated = 0;
 
   for (const agent of AGENTS) {
+    const departmentId = TYPE_TO_DEPARTMENT[agent.type];
     const existing = await prisma.agent.findUnique({ where: { name: agent.name } });
     let agentId: string;
 
@@ -81,22 +115,24 @@ async function main() {
           type: agent.type,
           config: agent.config,
           status: 'OFFLINE',
+          departmentId,
         },
       });
       agentId = row.id;
       created += 1;
-      console.log(`created ${agent.name} (${agent.type})`);
+      console.log(`created ${agent.name} (${agent.type}) → ${departmentId}`);
     } else {
       const row = await prisma.agent.update({
         where: { name: agent.name },
         data: {
           type: agent.type,
           config: agent.config,
+          departmentId,
         },
       });
       agentId = row.id;
       updated += 1;
-      console.log(`updated ${agent.name} (${agent.type})`);
+      console.log(`updated ${agent.name} (${agent.type}) → ${departmentId}`);
     }
 
     const backfilled = await prisma.agentRun.updateMany({

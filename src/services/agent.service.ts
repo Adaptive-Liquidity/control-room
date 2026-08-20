@@ -3,9 +3,17 @@ import type { AgentStatus, AgentType, Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 
 export class AgentService {
-  async getAll() {
+  async getAll(projectId: string, opts?: { departmentKey?: string }) {
     const { agentRunService } = await import('@/services/agent-run.service');
-    return agentRunService.enrichAgents();
+    return agentRunService.enrichAgents(projectId, opts);
+  }
+
+  async listDepartments() {
+    return prisma.agentDepartment.findMany({
+      where: { isActive: true },
+      orderBy: { name: 'asc' },
+      select: { id: true, key: true, name: true },
+    });
   }
 
   async getById(id: string) {
@@ -46,46 +54,17 @@ export class AgentService {
     });
   }
 
-  async getLogs(agentId: string, limit = 50) {
+  async getLogs(agentId: string, projectId: string, limit = 50) {
     // In production, this would query a log aggregation service
     // For now, return from activity logs
     return prisma.activityLog.findMany({
-      where: { agentId },
+      where: { agentId, projectId },
       orderBy: { createdAt: 'desc' },
       take: limit,
     });
   }
 
-  // Agent-specific operations
-  async runCreatorAgent(prompt: string, contentType: string, channel: string) {
-    // This would integrate with OpenAI/Claude
-    // For now, return a structured response
-    return {
-      title: `Generated ${contentType} for ${channel}`,
-      body: prompt,
-      suggestions: ['Add maturity band label', 'Include source citation', 'Verify regulatory disclaimer'],
-    };
-  }
-
-  async runPublisherAgent(contentId: string, channels: string[]) {
-    // Publish to multiple channels
-    const results = [];
-    for (const channel of channels) {
-      results.push({ channel, status: 'published', timestamp: new Date() });
-    }
-    return results;
-  }
-
-  async runAnalyzerAgent(contentId: string) {
-    // Analyze content performance
-    return {
-      predictedEngagement: 4.8,
-      predictedReach: 10200,
-      predictedSignups: 4,
-      confidence: 0.87,
-      similarTopPerformer: 'AEGIS Safety Thread',
-    };
-  }
+  // Agent-specific operations — LLM execution stays in n8n (Agent HQ invariant)
 
   async runGuardianAgent(contentId: string) {
     // Re-run Guardian check
@@ -93,7 +72,9 @@ export class AgentService {
     if (!content) throw new Error('Content not found');
 
     const { guardianService } = await import('@/lib/guardian/guardian.service');
-    return guardianService.checkContent(content.body, content.title);
+    return guardianService.checkContent(content.body, content.title, {
+      projectId: content.projectId,
+    });
   }
 }
 

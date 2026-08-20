@@ -30,12 +30,34 @@ export async function POST(req: NextRequest) {
 
     await assertEventIdUnused(payload.eventId);
 
-    const { run, idempotent } = await agentRunService.ingest(payload);
-    if (!idempotent) {
+    let projectId = payload.projectId;
+    if (payload.campaignId) {
+      const campaign = await prisma.campaign.findUnique({
+        where: { id: payload.campaignId },
+        select: { projectId: true },
+      });
+      if (!campaign) {
+        return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
+      }
+      if (projectId && projectId !== campaign.projectId) {
+        return NextResponse.json(
+          { error: 'campaignId does not belong to projectId' },
+          { status: 409 }
+        );
+      }
+      projectId = campaign.projectId;
+    }
+
+    const { run, idempotent } = await agentRunService.ingest({
+      ...payload,
+      projectId,
+    });
+    if (!idempotent && run.projectId) {
       await emitAgentRunUpdated({
         agentRunId: run.id,
         agentId: run.agentId ?? undefined,
         status: run.status,
+        projectId: run.projectId,
       });
     }
     return NextResponse.json(

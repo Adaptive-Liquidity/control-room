@@ -41,6 +41,10 @@ export class AgentRunService {
     startedAt?: string;
     finishedAt?: string;
     metadata?: Record<string, unknown>;
+    projectId?: string;
+    campaignId?: string;
+    departmentId?: string;
+    contextPackHash?: string;
   }) {
     const existing = await prisma.agentRun.findUnique({ where: { eventId: payload.eventId } });
     if (existing) {
@@ -48,12 +52,20 @@ export class AgentRunService {
     }
 
     let agentId = payload.agentId ?? null;
+    let departmentId = payload.departmentId ?? null;
     if (!agentId && payload.agentName) {
       const byName = await prisma.agent.findUnique({
         where: { name: payload.agentName },
-        select: { id: true },
+        select: { id: true, departmentId: true },
       });
       agentId = byName?.id ?? null;
+      if (!departmentId) departmentId = byName?.departmentId ?? null;
+    } else if (agentId && !departmentId) {
+      const byId = await prisma.agent.findUnique({
+        where: { id: agentId },
+        select: { departmentId: true },
+      });
+      departmentId = byId?.departmentId ?? null;
     }
 
     const run = await prisma.$transaction(async (tx) => {
@@ -76,6 +88,10 @@ export class AgentRunService {
           startedAt: payload.startedAt ? new Date(payload.startedAt) : undefined,
           finishedAt: payload.finishedAt ? new Date(payload.finishedAt) : undefined,
           metadata: (payload.metadata ?? undefined) as Prisma.InputJsonValue | undefined,
+          projectId: payload.projectId,
+          campaignId: payload.campaignId,
+          departmentId,
+          contextPackHash: payload.contextPackHash,
         },
       });
 
@@ -101,6 +117,7 @@ export class AgentRunService {
       await tx.activityLog.create({
         data: {
           agentId: agentId ?? undefined,
+          projectId: payload.projectId,
           type: 'AGENT_RUN_UPDATED',
           description: `Agent run ${payload.status}: ${payload.workflowId}/${payload.executionId}`,
           metadata: {
@@ -119,8 +136,12 @@ export class AgentRunService {
     return { run, idempotent: false };
   }
 
-  private agentRunMatchWhere(agent: { id: string; name: string }): Prisma.AgentRunWhereInput {
+  private agentRunMatchWhere(
+    agent: { id: string; name: string },
+    projectId: string
+  ): Prisma.AgentRunWhereInput {
     return {
+      projectId,
       OR: [{ agentId: agent.id }, { agentId: null, agentName: agent.name }],
     };
   }
@@ -180,9 +201,13 @@ export class AgentRunService {
     });
   }
 
-  private async summarizeRegisteredAgent24h(agent: { id: string; name: string }, since: Date) {
+  private async summarizeRegisteredAgent24h(
+    agent: { id: string; name: string },
+    since: Date,
+    projectId: string
+  ) {
     const where24h: Prisma.AgentRunWhereInput = {
-      AND: [this.agentRunMatchWhere(agent), { createdAt: { gte: since } }],
+      AND: [this.agentRunMatchWhere(agent, projectId), { createdAt: { gte: since } }],
     };
 
     const [totalRuns, success, failed, aggregates, recentRuns] = await Promise.all([
@@ -213,18 +238,26 @@ export class AgentRunService {
     });
   }
 
-  async enrichAgents() {
+  async enrichAgents(projectId: string, opts?: { departmentKey?: string }) {
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const agents = await prisma.agent.findMany({ orderBy: { updatedAt: 'desc' } });
+    const agents = await prisma.agent.findMany({
+      where: opts?.departmentKey
+        ? { department: { key: opts.departmentKey } }
+        : undefined,
+      include: {
+        department: { select: { id: true, key: true, name: true } },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
 
     const enriched = await Promise.all(
       agents.map(async (agent) => {
         const [lastRun, summary24h] = await Promise.all([
           prisma.agentRun.findFirst({
-            where: this.agentRunMatchWhere(agent),
+            where: this.agentRunMatchWhere(agent, projectId),
             orderBy: { createdAt: 'desc' },
           }),
-          this.summarizeRegisteredAgent24h(agent, since),
+          this.summarizeRegisteredAgent24h(agent, since, projectId),
         ]);
 
         return {
@@ -239,7 +272,8 @@ export class AgentRunService {
 
     const unregistered = await this.unregisteredAgentCards(
       agents.map((a) => a.name),
-      since
+      since,
+      projectId
     );
 
     return [...enriched, ...unregistered];
@@ -250,11 +284,15 @@ export class AgentRunService {
    * Those runs would otherwise be invisible on the agents surface, so they are
    * surfaced as synthetic read-only cards alongside registered agents.
    */
-  private async unregisteredAgentCards(registeredNames: string[], since: Date) {
+  private async unregisteredAgentCards(
+    registeredNames: string[],
+    since: Date,
+    projectId: string
+  ) {
     const registered = new Set(registeredNames);
 
     const nameRows = await prisma.agentRun.findMany({
-      where: { createdAt: { gte: since }, agentName: { not: null } },
+      where: { projectId, createdAt: { gte: since }, agentName: { not: null } },
       distinct: ['agentName'],
       select: { agentName: true },
       orderBy: { agentName: 'asc' },
@@ -268,11 +306,11 @@ export class AgentRunService {
       orphanNames.map(async (name) => {
         const [lastRun, runs24h] = await Promise.all([
           prisma.agentRun.findFirst({
-            where: { agentName: name },
+            where: { projectId, agentName: name },
             orderBy: { createdAt: 'desc' },
           }),
           prisma.agentRun.findMany({
-            where: { agentName: name, createdAt: { gte: since } },
+            where: { projectId, agentName: name, createdAt: { gte: since } },
             orderBy: { createdAt: 'desc' },
             select: RUN_SUMMARY_SELECT,
           }),

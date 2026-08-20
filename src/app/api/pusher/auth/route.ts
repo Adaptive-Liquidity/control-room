@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { CONTROL_ROOM_CHANNEL } from '@/lib/pusher/constants';
+import { isProjectChannel } from '@/lib/pusher/constants';
 import { getPusherServer } from '@/lib/pusher/server';
+import { prisma } from '@/lib/prisma';
 
 export const runtime = 'nodejs';
 
 /**
- * Authorizes subscription to private-control-room only.
- * Requires an authenticated NextAuth session.
+ * Authorizes subscription to private-project-{id}.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -49,7 +49,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (channelName !== CONTROL_ROOM_CHANNEL) {
+    if (!isProjectChannel(channelName)) {
+      return NextResponse.json({ error: 'Forbidden channel' }, { status: 403 });
+    }
+
+    const projectId = channelName.replace(/^private-project-/, '');
+    const membership = await prisma.projectMember.findUnique({
+      where: {
+        projectId_userId: { projectId, userId: session.user.id },
+      },
+    });
+    if (!membership) {
       return NextResponse.json({ error: 'Forbidden channel' }, { status: 403 });
     }
 

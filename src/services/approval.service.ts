@@ -23,6 +23,7 @@ export type ApprovalDecision = 'APPROVED' | 'REJECTED' | 'REVISION_REQUESTED';
 export class ApprovalService {
   async decide(opts: {
     session: Session;
+    projectId: string;
     contentId: string;
     expectedRevisionId: string;
     decision: ApprovalDecision;
@@ -55,6 +56,9 @@ export class ApprovalService {
       if (!existing) {
         throw new ValidationServiceError('Content not found');
       }
+      if (existing.projectId !== opts.projectId) {
+        throw new ValidationServiceError('Content not found');
+      }
 
       if (existing.currentRevisionId !== opts.expectedRevisionId) {
         throw new ConflictError(
@@ -77,6 +81,7 @@ export class ApprovalService {
             type: opts.edits.type ?? revision.type,
           },
           reviewerId,
+          opts.projectId,
           tx
         );
         if (guardianResult.result === 'BLOCK') {
@@ -124,6 +129,7 @@ export class ApprovalService {
       await tx.activityLog.create({
         data: {
           userId: reviewerId,
+          projectId: opts.projectId,
           type: opts.decision === 'APPROVED' ? 'CONTENT_APPROVED' : 'CONTENT_REJECTED',
           description: `${opts.decision}: "${updated.title}"${
             opts.comment ? ` — ${opts.comment}` : ''
@@ -187,6 +193,7 @@ export class ApprovalService {
 
     const realtimePayload = {
       contentId: content.id,
+      projectId: opts.projectId,
       revisionId,
       status: content.status,
     };

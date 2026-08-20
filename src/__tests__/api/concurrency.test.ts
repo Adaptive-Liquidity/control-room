@@ -59,6 +59,7 @@ describe('concurrency: dual approve', () => {
         content: {
           findUnique: jest.fn().mockImplementation(async () => ({
             id: 'c1',
+            projectId: 'project-1',
             title: 'T',
             origin: 'MANUAL',
             currentRevisionId: approved ? 'r-new' : 'r1',
@@ -95,6 +96,7 @@ describe('concurrency: dual approve', () => {
     const s = session('REVIEWER') as never;
     const first = await approvalService.decide({
       session: s,
+      projectId: 'project-1',
       contentId: 'c1',
       expectedRevisionId: 'r1',
       decision: 'APPROVED',
@@ -104,6 +106,7 @@ describe('concurrency: dual approve', () => {
     await expect(
       approvalService.decide({
         session: session('MANAGER', 'reviewer-2') as never,
+        projectId: 'project-1',
         contentId: 'c1',
         expectedRevisionId: 'r1',
         decision: 'APPROVED',

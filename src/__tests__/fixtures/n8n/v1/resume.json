@@ -1,0 +1,1 @@
+{"body":"Approved body","channel":"TWITTER","contentHash":"sha256:abcdef","contentId":"cnt_fixture","decision":"APPROVED","guardian":{"policyVersion":"1","score":10},"review":{"comment":null,"decidedAt":"2026-08-10T12:00:00.000Z","reviewerId":"user_reviewer"},"revisionId":"rev_fixture","schemaVersion":"1","title":"Approved title"}

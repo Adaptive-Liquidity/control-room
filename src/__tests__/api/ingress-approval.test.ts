@@ -64,6 +64,21 @@ jest.mock('next-auth', () => ({
   getServerSession: jest.fn(),
 }));
 
+jest.mock('@/lib/project/context', () => {
+  const actual = jest.requireActual('@/lib/project/context');
+  return {
+    ...actual,
+    resolveProjectContext: jest.fn().mockResolvedValue({
+      projectId: 'project-1',
+      slug: 'project-1',
+      name: 'Project 1',
+      role: 'REVIEWER',
+      company: { id: 'company-1', slug: 'company-1', name: 'Company 1' },
+      projects: [],
+    }),
+  };
+});
+
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { POST as draftPost } from '@/app/api/integrations/n8n/drafts/route';
@@ -290,7 +305,8 @@ describe('publish receipt', () => {
       contentId: 'c1',
       contentHash: 'abc123',
       title: 'T',
-      content: { status: 'APPROVED' },
+      guardianResult: 'ALLOW',
+      content: { status: 'APPROVED', projectId: 'proj_aeon' },
     });
 
     const contentUpdate = jest.fn().mockResolvedValue({ id: 'c1', status: 'PUBLISHED' });
@@ -321,6 +337,26 @@ describe('publish receipt', () => {
     );
   });
 
+  it('rejects SUCCESS receipt when content is still PENDING_REVIEW', async () => {
+    mockedPrisma.publishReceipt.findUnique.mockResolvedValue(null);
+    mockedPrisma.contentRevision.findUnique.mockResolvedValue({
+      id: 'r1',
+      contentId: 'c1',
+      contentHash: 'abc123',
+      title: 'T',
+      guardianResult: 'ALLOW',
+      content: { status: 'PENDING_REVIEW', projectId: 'proj_aeon' },
+    });
+
+    const req = makeJsonRequest(
+      'http://localhost/api/integrations/n8n/publish-receipt',
+      { ...receiptBody, eventId: 'evt-pending' }
+    );
+    const res = await receiptPost(req);
+    expect(res.status).toBe(422);
+    expect(mockedPrisma.$transaction).not.toHaveBeenCalled();
+  });
+
   it('FAILED receipt does not update content to PUBLISHED', async () => {
     mockedPrisma.publishReceipt.findUnique.mockResolvedValue(null);
     mockedPrisma.contentRevision.findUnique.mockResolvedValue({
@@ -328,7 +364,8 @@ describe('publish receipt', () => {
       contentId: 'c1',
       contentHash: 'abc123',
       title: 'T',
-      content: { status: 'APPROVED' },
+      guardianResult: 'ALLOW',
+      content: { status: 'APPROVED', projectId: 'proj_aeon' },
     });
 
     const contentUpdate = jest.fn();

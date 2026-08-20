@@ -4,7 +4,13 @@ import { z } from 'zod';
 import { authOptions } from '@/lib/auth';
 import { ForbiddenError, requirePermission } from '@/lib/rbac';
 import { prisma } from '@/lib/prisma';
+import { scopedPrisma } from '@/lib/scope/scoped-prisma';
 import { ExperimentServiceError, experimentService } from '@/services/experiment.service';
+import {
+  ForbiddenProjectError,
+  SetupRequiredError,
+  resolveProjectContext,
+} from '@/lib/project/context';
 
 const updateSchema = z.object({
   name: z.string().min(1).max(200).optional(),
@@ -32,19 +38,25 @@ const updateSchema = z.object({
 });
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
     const session = await getServerSession(authOptions);
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    const experiment = await prisma.experiment.findUnique({
+    const ctx = await resolveProjectContext({
+      requestedProjectId: req.headers.get('x-project-id'),
+    });
+    const experiment = await scopedPrisma(ctx.projectId, prisma).experiment.findUnique({
       where: { id: params.id },
       include: { createdBy: { select: { id: true, name: true, email: true } } },
     });
     if (!experiment) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     return NextResponse.json(experiment);
   } catch (error) {
+    if (error instanceof SetupRequiredError || error instanceof ForbiddenProjectError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('GET /api/experiments/[id] error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
@@ -57,15 +69,21 @@ export async function PATCH(
   try {
     const session = await getServerSession(authOptions);
     requirePermission(session, 'content.edit');
+    const ctx = await resolveProjectContext({
+      requestedProjectId: req.headers.get('x-project-id'),
+    });
     const data = updateSchema.parse(await req.json());
     const experiment = await experimentService.update(params.id, {
       ...data,
       userId: session.user.id,
-    });
+    }, ctx.projectId);
     return NextResponse.json(experiment);
   } catch (error) {
     if (error instanceof ForbiddenError) {
       return NextResponse.json({ error: error.message }, { status: error.statusCode });
+    }
+    if (error instanceof SetupRequiredError || error instanceof ForbiddenProjectError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
     }
     if (error instanceof ExperimentServiceError) {
       return NextResponse.json({ error: error.message }, { status: error.statusCode });

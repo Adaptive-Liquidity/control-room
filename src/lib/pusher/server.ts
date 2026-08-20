@@ -1,7 +1,7 @@
 import Pusher from 'pusher';
 import {
   AGENT_RUN_UPDATED_EVENT,
-  CONTROL_ROOM_CHANNEL,
+  projectChannel,
   type ControlRoomEvent,
 } from '@/lib/pusher/constants';
 
@@ -9,18 +9,21 @@ export {
   AGENT_RUN_UPDATED_EVENT,
   CONTROL_ROOM_CHANNEL,
   CONTENT_REALTIME_EVENTS,
+  projectChannel,
   type ControlRoomEvent,
 } from '@/lib/pusher/constants';
 
 /** IDs-only payloads — never bodies, resume URLs, or PII. */
 export type ContentRealtimePayload = {
   contentId: string;
+  projectId: string;
   revisionId?: string;
   status?: string;
 };
 
 export type AgentRunRealtimePayload = {
   agentRunId: string;
+  projectId: string;
   agentId?: string;
   status?: string;
 };
@@ -31,6 +34,7 @@ const ALLOWED_PAYLOAD_KEYS = new Set([
   'status',
   'agentRunId',
   'agentId',
+  'projectId',
 ]);
 
 let pusherSingleton: Pusher | null | undefined;
@@ -81,7 +85,7 @@ function sanitizeIdsOnly(
 
 /**
  * Best-effort trigger. Never throws — Pusher outage must not break mutations.
- * Payload is stripped to allowlisted ID fields only.
+ * Always publishes to the tenant-specific private project channel.
  */
 export async function triggerControlRoom(
   event: ControlRoomEvent,
@@ -93,8 +97,11 @@ export async function triggerControlRoom(
   const payload = sanitizeIdsOnly(data as unknown as Record<string, unknown>);
   if (!payload.contentId && !payload.agentRunId) return;
 
+  if (!payload.projectId) return;
+  const channel = projectChannel(payload.projectId);
+
   try {
-    await client.trigger(CONTROL_ROOM_CHANNEL, event, payload);
+    await client.trigger(channel, event, payload);
   } catch (err) {
     console.error(`Pusher trigger failed (${event}):`, err);
   }

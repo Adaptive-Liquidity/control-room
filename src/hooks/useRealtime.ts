@@ -7,7 +7,7 @@ import { getPusherClient } from '@/lib/pusher/client';
 import {
   AGENT_RUN_UPDATED_EVENT,
   CONTENT_REALTIME_EVENTS,
-  CONTROL_ROOM_CHANNEL,
+  projectChannel,
 } from '@/lib/pusher/constants';
 
 type ContentEventPayload = {
@@ -17,7 +17,7 @@ type ContentEventPayload = {
 };
 
 /**
- * Subscribes to private-control-room and invalidates React Query caches.
+ * Subscribes to the active project's private channel and invalidates React Query caches.
  * Safe no-op when unauthenticated or Pusher env is missing — polling remains.
  */
 export function useRealtime() {
@@ -29,8 +29,9 @@ export function useRealtime() {
 
     const pusher = getPusherClient();
     if (!pusher) return;
-
-    const channel = pusher.subscribe(CONTROL_ROOM_CHANNEL);
+    let cancelled = false;
+    let channel: ReturnType<typeof pusher.subscribe> | null = null;
+    let channelName: string | null = null;
 
     const onContentEvent = (data: ContentEventPayload) => {
       void queryClient.invalidateQueries({ queryKey: ['queue'] });
@@ -49,17 +50,30 @@ export function useRealtime() {
       void queryClient.invalidateQueries({ queryKey: ['dashboard'] });
     };
 
-    for (const event of CONTENT_REALTIME_EVENTS) {
-      channel.bind(event, onContentEvent);
-    }
-    channel.bind(AGENT_RUN_UPDATED_EVENT, onAgentRunUpdated);
+    void fetch('/api/projects')
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return response.json() as Promise<{ activeProjectId?: string }>;
+      })
+      .then((data) => {
+        if (cancelled || !data?.activeProjectId) return;
+        channelName = projectChannel(data.activeProjectId);
+        channel = pusher.subscribe(channelName);
+        for (const event of CONTENT_REALTIME_EVENTS) {
+          channel.bind(event, onContentEvent);
+        }
+        channel.bind(AGENT_RUN_UPDATED_EVENT, onAgentRunUpdated);
+      })
+      .catch(() => undefined);
 
     return () => {
+      cancelled = true;
+      if (!channel || !channelName) return;
       for (const event of CONTENT_REALTIME_EVENTS) {
         channel.unbind(event, onContentEvent);
       }
       channel.unbind(AGENT_RUN_UPDATED_EVENT, onAgentRunUpdated);
-      pusher.unsubscribe(CONTROL_ROOM_CHANNEL);
+      pusher.unsubscribe(channelName);
     };
   }, [status, queryClient]);
 }

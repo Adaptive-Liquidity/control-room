@@ -5,6 +5,11 @@ import { z } from 'zod';
 import { authOptions } from '@/lib/auth';
 import { ForbiddenError, requirePermission } from '@/lib/rbac';
 import { agentService } from '@/services/agent.service';
+import {
+  ForbiddenProjectError,
+  SetupRequiredError,
+  resolveProjectContext,
+} from '@/lib/project/context';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,13 +20,23 @@ const createSchema = z.object({
   mcpEndpoint: z.string().url().optional(),
 });
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    const agents = await agentService.getAll();
-    return NextResponse.json(agents);
+    const ctx = await resolveProjectContext({
+      requestedProjectId: req.headers.get('x-project-id'),
+    });
+    const departmentKey = new URL(req.url).searchParams.get('department') || undefined;
+    const [agents, departments] = await Promise.all([
+      agentService.getAll(ctx.projectId, { departmentKey }),
+      agentService.listDepartments(),
+    ]);
+    return NextResponse.json({ agents, departments, department: departmentKey ?? null });
   } catch (error) {
+    if (error instanceof SetupRequiredError || error instanceof ForbiddenProjectError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Agents error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
@@ -32,6 +47,9 @@ export async function POST(req: NextRequest) {
     const session = await getServerSession(authOptions);
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     requirePermission(session, 'settings.manage');
+    await resolveProjectContext({
+      requestedProjectId: req.headers.get('x-project-id'),
+    });
 
     const validated = createSchema.parse(await req.json());
 
@@ -54,6 +72,9 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     if (error instanceof ForbiddenError) {
       return NextResponse.json({ error: error.message }, { status: error.statusCode });
+    }
+    if (error instanceof SetupRequiredError || error instanceof ForbiddenProjectError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
     }
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: 'Validation error', details: error.errors }, { status: 400 });

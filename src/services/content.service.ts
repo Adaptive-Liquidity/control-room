@@ -3,6 +3,8 @@ import { createHash } from 'crypto';
 import type { Channel, ContentType, Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { guardianService } from '@/lib/guardian/guardian.service';
+import { riskTierFromGuardian } from '@/lib/guardian/risk-tier';
+import { scopedPrisma } from '@/lib/scope/scoped-prisma';
 import {
   emitContentCreated,
   emitContentUpdated,
@@ -39,6 +41,7 @@ export class ContentService {
       type: ContentType;
     },
     createdById: string,
+    projectId: string,
     tx: Prisma.TransactionClient = prisma
   ) {
     const last = await tx.contentRevision.findFirst({
@@ -48,7 +51,9 @@ export class ContentService {
     });
     const version = (last?.version ?? 0) + 1;
     const contentHash = hashContent(data.title, data.body);
-    const guardianResult = await guardianService.checkContent(data.body, data.title);
+    const guardianResult = await guardianService.checkContent(data.body, data.title, {
+      projectId,
+    });
 
     const revision = await tx.contentRevision.create({
       data: {
@@ -80,6 +85,7 @@ export class ContentService {
         guardianScore: guardianResult.score,
         guardianChecks: guardianResult.checks as unknown as Prisma.InputJsonValue,
         guardianFlags: guardianResult.flags as unknown as Prisma.InputJsonValue,
+        riskTier: riskTierFromGuardian(guardianResult.result, guardianResult.score),
       },
     });
 
@@ -92,6 +98,7 @@ export class ContentService {
     type: ContentType;
     channel: Channel;
     authorId: string;
+    projectId: string;
     campaignId?: string;
     origin?: 'MANUAL' | 'N8N';
     externalDraftId?: string;
@@ -99,6 +106,16 @@ export class ContentService {
     n8nExecutionId?: string;
     status?: Content['status'];
   }) {
+    if (data.campaignId) {
+      const campaign = await scopedPrisma(data.projectId, prisma).campaign.findUnique({
+        where: { id: data.campaignId },
+        select: { id: true },
+      });
+      if (!campaign) {
+        throw new ValidationServiceError('Campaign not found in active project');
+      }
+    }
+
     const content = await prisma.$transaction(async (tx) => {
       const created = await tx.content.create({
         data: {
@@ -107,6 +124,7 @@ export class ContentService {
           type: data.type,
           channel: data.channel,
           authorId: data.authorId,
+          projectId: data.projectId,
           campaignId: data.campaignId,
           origin: data.origin ?? 'MANUAL',
           externalDraftId: data.externalDraftId,
@@ -126,12 +144,14 @@ export class ContentService {
           type: data.type,
         },
         data.authorId,
+        data.projectId,
         tx
       );
 
       await tx.activityLog.create({
         data: {
           userId: data.authorId,
+          projectId: data.projectId,
           type: 'CONTENT_CREATED',
           description: `Created ${data.type}: "${data.title}"`,
           metadata: {
@@ -156,6 +176,7 @@ export class ContentService {
 
     await emitContentCreated({
       contentId: content.id,
+      projectId: content.projectId,
       revisionId: content.currentRevisionId ?? undefined,
       status: content.status,
     });
@@ -174,9 +195,11 @@ export class ContentService {
       status?: Content['status'];
       scheduledAt?: Date | null;
     },
-    userId: string
+    userId: string,
+    projectId: string
   ) {
-    const content = await prisma.content.findUnique({ where: { id } });
+    const db = scopedPrisma(projectId, prisma);
+    const content = await db.content.findUnique({ where: { id } });
     if (!content) throw new Error('Content not found');
 
     const contentFieldsChanged =
@@ -184,6 +207,16 @@ export class ContentService {
       data.body !== undefined ||
       data.type !== undefined ||
       data.channel !== undefined;
+
+    if (data.campaignId) {
+      const campaign = await db.campaign.findUnique({
+        where: { id: data.campaignId },
+        select: { id: true },
+      });
+      if (!campaign) {
+        throw new ValidationServiceError('Campaign not found in active project');
+      }
+    }
 
     if (contentFieldsChanged) {
       await this.createRevision(
@@ -194,7 +227,8 @@ export class ContentService {
           type: data.type ?? content.type,
           channel: data.channel ?? content.channel,
         },
-        userId
+        userId,
+        projectId
       );
     }
 
@@ -208,7 +242,7 @@ export class ContentService {
         : {}),
     };
 
-    const updated = await prisma.content.update({
+    const updated = await db.content.update({
       where: { id },
       data: updateData,
       include: {
@@ -218,9 +252,10 @@ export class ContentService {
       },
     });
 
-    await prisma.activityLog.create({
+    await db.activityLog.create({
       data: {
         userId,
+        projectId,
         type: 'CONTENT_UPDATED',
         description: `Updated content: "${updated.title}"`,
         metadata: { contentId: id },
@@ -229,6 +264,7 @@ export class ContentService {
 
     await emitContentUpdated({
       contentId: updated.id,
+      projectId,
       revisionId: updated.currentRevisionId ?? undefined,
       status: updated.status,
     });
@@ -236,8 +272,8 @@ export class ContentService {
     return updated;
   }
 
-  async getById(id: string) {
-    return prisma.content.findUnique({
+  async getById(id: string, projectId: string) {
+    return scopedPrisma(projectId, prisma).content.findUnique({
       where: { id },
       include: {
         author: true,
@@ -252,8 +288,8 @@ export class ContentService {
    * Detail payload for Queue/Studio: content + current/prior revisions (diff),
    * approvals, and Guardian snapshot from the current revision.
    */
-  async getDetail(id: string) {
-    const content = await prisma.content.findUnique({
+  async getDetail(id: string, projectId: string) {
+    const content = await scopedPrisma(projectId, prisma).content.findUnique({
       where: { id },
       include: {
         author: {
@@ -326,17 +362,19 @@ export class ContentService {
       channel?: string;
       authorId?: string;
       campaignId?: string;
+      projectId: string;
       page?: number;
       limit?: number;
-    } = {}
+    }
   ) {
-    const { status, channel, authorId, campaignId, page = 1, limit = 20 } = options;
+    const { status, channel, authorId, campaignId, projectId, page = 1, limit = 20 } = options;
 
     const where: Prisma.ContentWhereInput = {};
     if (status) where.status = status as Content['status'];
     if (channel) where.channel = channel as Channel;
     if (authorId) where.authorId = authorId;
     if (campaignId) where.campaignId = campaignId;
+    where.projectId = projectId;
 
     const [items, total] = await Promise.all([
       prisma.content.findMany({
@@ -396,8 +434,9 @@ export class ContentService {
     );
   }
 
-  async schedule(id: string, scheduledAt: Date) {
-    const existing = await prisma.content.findUnique({ where: { id } });
+  async schedule(id: string, scheduledAt: Date, projectId: string) {
+    const db = scopedPrisma(projectId, prisma);
+    const existing = await db.content.findUnique({ where: { id } });
     if (!existing) {
       throw new Error('Content not found');
     }
@@ -417,7 +456,7 @@ export class ContentService {
         );
       }
     }
-    return prisma.content.update({
+    return db.content.update({
       where: { id },
       data: { status: 'SCHEDULED', scheduledAt },
     });
@@ -433,7 +472,8 @@ export class ContentService {
     );
   }
 
-  async getDashboardStats() {
+  async getDashboardStats(projectId: string) {
+    const db = scopedPrisma(projectId, prisma);
     const [
       pendingCount,
       scheduledCount,
@@ -442,20 +482,20 @@ export class ContentService {
       guardianStats,
       attributionStats,
     ] = await Promise.all([
-      prisma.content.count({ where: { status: 'PENDING_REVIEW' } }),
-      prisma.content.count({ where: { status: 'SCHEDULED' } }),
-      prisma.content.count({
+      db.content.count({ where: { status: 'PENDING_REVIEW' } }),
+      db.content.count({ where: { status: 'SCHEDULED' } }),
+      db.content.count({
         where: {
           status: 'PUBLISHED',
           publishedAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
         },
       }),
       prisma.agent.count({ where: { status: 'ONLINE' } }),
-      prisma.content.aggregate({
+      db.content.aggregate({
         where: { status: { in: ['APPROVED', 'PUBLISHED'] } },
         _avg: { guardianScore: true },
       }),
-      prisma.content.aggregate({
+      db.content.aggregate({
         _sum: { signups: true, integrations: true, treasuryImpact: true },
       }),
     ]);

@@ -47,5 +47,8 @@ jobs:
       - name: Unit and API tests
         run: npm test
 
+      - name: Coverage (ratchet)
+        run: npx jest --coverage --coverageReporters=text-summary
+
       - name: Production build
         run: npm run build

@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { encrypt } from '@/lib/crypto';
 import { evaluateCampaignPolicy, CampaignPolicyRejectedError } from '@/lib/n8n/campaign-policy';
 import { n8nDraftIngressSchema } from '@/lib/n8n/contracts';
+import { riskTierFromGuardian } from '@/lib/guardian/risk-tier';
 import {
   SignatureError,
   assertEventIdUnused,
@@ -14,7 +15,18 @@ import { emitContentCreated } from '@/lib/pusher/server';
 
 export const runtime = 'nodejs';
 
-async function resolveServiceAuthorId(): Promise<string | null> {
+async function resolveServiceAuthorIdForProject(projectId: string): Promise<string | null> {
+  const member = await prisma.projectMember.findFirst({
+    where: {
+      projectId,
+      role: 'SERVICE',
+      user: { isActive: true },
+    },
+    select: { userId: true },
+  });
+  if (member) return member.userId;
+
+  // Fallback: any active SERVICE user (single-tenant transition)
   const serviceUser = await prisma.user.findFirst({
     where: { role: 'SERVICE', isActive: true },
     select: { id: true },
@@ -73,12 +85,36 @@ export async function POST(req: NextRequest) {
 
     await assertEventIdUnused(payload.eventId);
 
-    const authorId = await resolveServiceAuthorId();
+    let projectId = payload.projectId ?? null;
+    if (payload.campaignId) {
+      const campaign = await prisma.campaign.findUnique({
+        where: { id: payload.campaignId },
+        select: { projectId: true },
+      });
+      if (!campaign) {
+        return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
+      }
+      if (projectId && projectId !== campaign.projectId) {
+        return NextResponse.json(
+          { error: 'campaignId does not belong to projectId' },
+          { status: 409 }
+        );
+      }
+      projectId = campaign.projectId;
+    }
+    if (!projectId) {
+      return NextResponse.json(
+        { error: 'projectId required when campaignId is not provided' },
+        { status: 400 }
+      );
+    }
+
+    const authorId = await resolveServiceAuthorIdForProject(projectId);
     if (!authorId) {
       return NextResponse.json(
         {
           error:
-            'No active SERVICE user configured. Create a SERVICE account before ingesting n8n drafts.',
+            'No active SERVICE member for this project. Invite a SERVICE user to the project before ingesting n8n drafts.',
         },
         { status: 503 }
       );
@@ -104,6 +140,7 @@ export async function POST(req: NextRequest) {
           type: payload.content.type,
           channel: payload.content.channel,
           authorId,
+          projectId: projectId!,
           campaignId: payload.campaignId,
           origin: 'N8N',
           externalDraftId: payload.externalDraftId,
@@ -122,6 +159,7 @@ export async function POST(req: NextRequest) {
           channel: payload.content.channel,
         },
         authorId,
+        projectId!,
         tx
       );
 
@@ -143,6 +181,7 @@ export async function POST(req: NextRequest) {
       await tx.activityLog.create({
         data: {
           userId: authorId,
+          projectId: projectId!,
           type: 'CONTENT_CREATED',
           description: `n8n ingested draft: "${payload.content.title}"`,
           metadata: {
@@ -162,6 +201,18 @@ export async function POST(req: NextRequest) {
         status: 'PENDING_REVIEW' as const,
         guardianScore: guardianResult.score,
         guardianResult: guardianResult.result,
+        projectId: projectId!,
+        riskTier: riskTierFromGuardian(guardianResult.result, guardianResult.score),
+        requireHuman: payload.campaignId
+          ? (
+              await evaluateCampaignPolicy(payload.campaignId, tx, {
+                contentRisk: riskTierFromGuardian(
+                  guardianResult.result,
+                  guardianResult.score
+                ),
+              })
+            )?.requireHuman ?? true
+          : true,
       };
     });
 
@@ -169,6 +220,7 @@ export async function POST(req: NextRequest) {
       contentId: content.contentId,
       revisionId: content.revisionId,
       status: content.status,
+      projectId: content.projectId,
     });
 
     return NextResponse.json({ ...content, idempotent: false }, { status: 201 });

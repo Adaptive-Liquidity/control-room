@@ -1,6 +1,7 @@
 // src/services/experiment.service.ts
 import type { Channel, ExperimentStatus, Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
+import { scopedPrisma } from '@/lib/scope/scoped-prisma';
 
 export class ExperimentServiceError extends Error {
   statusCode: number;
@@ -14,10 +15,17 @@ export class ExperimentServiceError extends Error {
 type Variant = { id: string; name: string; contentId?: string };
 
 export class ExperimentService {
-  async getAll(opts: { status?: ExperimentStatus | string; page?: number; limit?: number } = {}) {
+  async getAll(opts: {
+    projectId: string;
+    status?: ExperimentStatus | string;
+    page?: number;
+    limit?: number;
+  }) {
     const page = opts.page ?? 1;
     const limit = Math.min(opts.limit ?? 50, 100);
-    const where: { status?: ExperimentStatus } = {};
+    const where: { projectId: string; status?: ExperimentStatus } = {
+      projectId: opts.projectId,
+    };
     if (opts.status) where.status = opts.status as ExperimentStatus;
 
     const [items, total] = await Promise.all([
@@ -42,6 +50,7 @@ export class ExperimentService {
     primaryMetric: string;
     guardrailMetrics?: string[];
     createdById: string;
+    projectId: string;
   }) {
     if (!data.variants?.length || data.variants.length < 2) {
       throw new ExperimentServiceError('At least two variants are required');
@@ -56,6 +65,7 @@ export class ExperimentService {
         primaryMetric: data.primaryMetric,
         guardrailMetrics: (data.guardrailMetrics ?? []) as unknown as Prisma.InputJsonValue,
         createdById: data.createdById,
+        projectId: data.projectId,
         status: 'PLANNING',
         // Never invent confidence/lift at create time
         liftPct: null,
@@ -67,6 +77,7 @@ export class ExperimentService {
     await prisma.activityLog.create({
       data: {
         userId: data.createdById,
+        projectId: data.projectId,
         type: 'EXPERIMENT_CREATED',
         description: `Created experiment: "${data.name}"`,
         metadata: { experimentId: experiment.id },
@@ -93,9 +104,11 @@ export class ExperimentService {
       startedAt?: string | null;
       endedAt?: string | null;
       userId: string;
-    }
+    },
+    projectId: string
   ) {
-    const existing = await prisma.experiment.findUnique({ where: { id } });
+    const db = scopedPrisma(projectId, prisma);
+    const existing = await db.experiment.findUnique({ where: { id } });
     if (!existing) throw new ExperimentServiceError('Experiment not found', 404);
 
     // Reject fabricated confidence unless explicitly stored with outcome/decision
@@ -106,7 +119,7 @@ export class ExperimentService {
       );
     }
 
-    const experiment = await prisma.experiment.update({
+    const experiment = await db.experiment.update({
       where: { id },
       data: {
         name: data.name,
@@ -137,9 +150,10 @@ export class ExperimentService {
       include: { createdBy: { select: { id: true, name: true, email: true } } },
     });
 
-    await prisma.activityLog.create({
+    await db.activityLog.create({
       data: {
         userId: data.userId,
+        projectId,
         type: 'EXPERIMENT_UPDATED',
         description: `Updated experiment: "${experiment.name}"`,
         metadata: { experimentId: experiment.id, status: experiment.status },

@@ -49,6 +49,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (revision.guardianResult === 'BLOCK') {
+      return NextResponse.json(
+        { error: 'Cannot publish content blocked by Guardian' },
+        { status: 422 }
+      );
+    }
+
+    if (payload.status === 'SUCCESS') {
+      const publishable = revision.content.status === 'APPROVED' || revision.content.status === 'SCHEDULED';
+      if (!publishable) {
+        return NextResponse.json(
+          {
+            error: `Content must be APPROVED or SCHEDULED before publish receipt (got ${revision.content.status})`,
+          },
+          { status: 422 }
+        );
+      }
+    }
+
     const result = await prisma.$transaction(async (tx) => {
       const receipt = await tx.publishReceipt.create({
         data: {
@@ -80,6 +99,7 @@ export async function POST(req: NextRequest) {
 
         await tx.activityLog.create({
           data: {
+            projectId: revision.content.projectId,
             type: 'CONTENT_PUBLISHED',
             description: `Published via n8n receipt: "${revision.title}" on ${payload.channel}`,
             metadata: {
@@ -99,12 +119,14 @@ export async function POST(req: NextRequest) {
     if (payload.status === 'SUCCESS') {
       await emitContentPublished({
         contentId: payload.contentId,
+        projectId: revision.content.projectId,
         revisionId: payload.revisionId,
         status: 'PUBLISHED',
       });
     } else {
       await emitContentUpdated({
         contentId: payload.contentId,
+        projectId: revision.content.projectId,
         revisionId: payload.revisionId,
         status: revision.content.status,
       });

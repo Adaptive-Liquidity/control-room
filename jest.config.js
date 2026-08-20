@@ -16,6 +16,21 @@ const customJestConfig = {
     '^@/(.*)$': '<rootDir>/src/$1',
   },
   clearMocks: true,
+  collectCoverageFrom: [
+    'src/lib/**/*.{ts,tsx}',
+    'src/services/**/*.{ts,tsx}',
+    'src/app/api/**/*.{ts,tsx}',
+    '!src/**/*.d.ts',
+  ],
+  // Global floor — ratchet up as Agent HQ modules land (compose/scope get per-path targets in later cycles)
+  coverageThreshold: {
+    global: {
+      branches: 7,
+      functions: 12,
+      lines: 14,
+      statements: 14,
+    },
+  },
 };
 
 module.exports = createJestConfig(customJestConfig);

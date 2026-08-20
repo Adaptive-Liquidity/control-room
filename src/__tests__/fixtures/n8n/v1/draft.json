@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1",
+  "eventId": "evt-draft-v1-fixture",
+  "externalDraftId": "ext-draft-v1-fixture",
+  "workflowId": "wf-mkt-03",
+  "executionId": "exec-draft-v1",
+  "resumeUrl": "https://n8n.example.com/webhook-waiting/abc",
+  "campaignId": "cmp_fixture",
+  "content": {
+    "title": "Fixture draft title",
+    "body": "Fixture draft body for contract lock.",
+    "type": "TWITTER_THREAD",
+    "channel": "TWITTER"
+  }
+}

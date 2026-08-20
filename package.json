@@ -20,6 +20,7 @@
     "agents:start": "echo \"DEPRECATED: agent execution lives in n8n; Control Room receives AgentRun telemetry via HMAC ingress\" && exit 1",
     "test": "jest",
     "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",
     "typecheck": "tsc --noEmit"
