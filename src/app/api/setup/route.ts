@@ -4,7 +4,10 @@ import { z } from 'zod';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { ForbiddenError, hasPermission, requirePermission } from '@/lib/rbac';
-import { contextPackService } from '@/services/context-pack.service';
+import {
+  CompanyPackRequiredError,
+  contextPackService,
+} from '@/services/context-pack.service';
 import type { ContextPack } from '@/lib/context/compose-packs';
 import { isUniqueConstraintError } from '@/lib/prisma-errors';
 import { evaluateSetupGate } from '@/lib/setup/setup-gate';
@@ -41,9 +44,6 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const company = await prisma.company.findFirst({
-      select: { id: true, name: true, slug: true, setupCompletedAt: true },
-    });
     const memberships = await prisma.projectMember.findMany({
       where: { userId: session.user.id },
       include: {
@@ -51,11 +51,15 @@ export async function GET() {
           select: {
             id: true,
             activeContextVersionId: true,
-            company: { select: { id: true, activeContextVersionId: true } },
+            company: {
+              select: { id: true, name: true, slug: true, activeContextVersionId: true },
+            },
           },
         },
       },
+      orderBy: { createdAt: 'asc' },
     });
+    const scopedCompany = memberships[0]?.project.company ?? null;
     const gate = evaluateSetupGate({
       memberships: memberships.map((row) => ({
         projectId: row.projectId,
@@ -66,8 +70,10 @@ export async function GET() {
     });
 
     return NextResponse.json({
-      hasCompany: Boolean(company),
-      company: company ? { id: company.id, name: company.name, slug: company.slug } : null,
+      hasCompany: Boolean(scopedCompany),
+      company: scopedCompany
+        ? { id: scopedCompany.id, name: scopedCompany.name, slug: scopedCompany.slug }
+        : null,
       canManage: hasPermission(session.user.role, 'company.manage'),
       ready: gate.ready,
       missing: gate.ready ? [] : gate.missing,
@@ -230,6 +236,9 @@ export async function POST(req: NextRequest) {
         { error: 'Company or project slug already exists' },
         { status: 409 }
       );
+    }
+    if (error instanceof CompanyPackRequiredError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
     }
     console.error('POST /api/setup error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

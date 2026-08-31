@@ -35,6 +35,9 @@ export class ApprovalService {
       type?: ContentType;
     };
   }) {
+    if (opts.session.user.role === 'SERVICE') {
+      throw new ForbiddenError('SERVICE accounts cannot approve');
+    }
     const membership = await prisma.projectMember.findUnique({
       where: {
         projectId_userId: {

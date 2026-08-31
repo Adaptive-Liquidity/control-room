@@ -12,6 +12,7 @@ import {
   requireProjectPermission,
   resolveProjectContext,
 } from '@/lib/project/context';
+import { resolveInviteRoles } from '@/lib/project/invite-roles';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -36,6 +37,11 @@ const userSelect = {
 function userSelectForProject(projectId: string) {
   return {
     ...userSelect,
+    memberships: {
+      where: { projectId },
+      select: { role: true },
+      take: 1,
+    },
     _count: {
       select: {
         contents: { where: { projectId } },
@@ -43,6 +49,17 @@ function userSelectForProject(projectId: string) {
       },
     },
   } as const;
+}
+
+function toProjectUser<
+  T extends { role: UserRole; memberships?: Array<{ role: UserRole }> },
+>(row: T) {
+  const { memberships, ...rest } = row;
+  return {
+    ...rest,
+    globalRole: rest.role,
+    role: memberships?.[0]?.role ?? rest.role,
+  };
 }
 
 export async function GET(req: NextRequest) {
@@ -60,7 +77,7 @@ export async function GET(req: NextRequest) {
       orderBy: { createdAt: 'desc' },
     });
 
-    return NextResponse.json({ items: users });
+    return NextResponse.json({ items: users.map(toProjectUser) });
   } catch (error) {
     if (error instanceof ForbiddenError) {
       return NextResponse.json({ error: error.message }, { status: error.statusCode });
@@ -87,22 +104,36 @@ export async function POST(req: NextRequest) {
     const email = body.email.toLowerCase();
 
     const existing = await prisma.user.findUnique({ where: { email } });
+    const roles = resolveInviteRoles({
+      requested: body.role,
+      inviterGlobalRole: session.user.role,
+      existingGlobalRole: existing?.role ?? null,
+    });
+
     if (existing) {
       const user = await prisma.$transaction(async (tx) => {
         await tx.projectMember.upsert({
           where: {
             projectId_userId: { projectId: ctx.projectId, userId: existing.id },
           },
-          create: { projectId: ctx.projectId, userId: existing.id, role: body.role },
-          update: { role: body.role },
+          create: {
+            projectId: ctx.projectId,
+            userId: existing.id,
+            role: roles.membershipRole,
+          },
+          update: { role: roles.membershipRole },
         });
         await tx.activityLog.create({
           data: {
             userId: session.user.id,
             projectId: ctx.projectId,
             type: 'SETTINGS_CHANGED',
-            description: `Added existing user ${existing.email} to project as ${body.role}`,
-            metadata: { invitedUserId: existing.id, role: body.role, existing: true },
+            description: `Added existing user ${existing.email} to project as ${roles.membershipRole}`,
+            metadata: {
+              invitedUserId: existing.id,
+              role: roles.membershipRole,
+              existing: true,
+            },
           },
         });
         return tx.user.findUniqueOrThrow({
@@ -110,7 +141,7 @@ export async function POST(req: NextRequest) {
           select: userSelectForProject(ctx.projectId),
         });
       });
-      return NextResponse.json({ user, existing: true });
+      return NextResponse.json({ user: toProjectUser(user), existing: true });
     }
 
     const hashedPassword = await bcrypt.hash(body.password, 12);
@@ -120,10 +151,10 @@ export async function POST(req: NextRequest) {
           email,
           password: hashedPassword,
           name: body.name?.trim() || email.split('@')[0],
-          role: body.role,
+          role: roles.globalRole ?? body.role,
           isActive: true,
           memberships: {
-            create: { projectId: ctx.projectId, role: body.role },
+            create: { projectId: ctx.projectId, role: roles.membershipRole },
           },
         },
         select: userSelectForProject(ctx.projectId),
@@ -134,14 +165,18 @@ export async function POST(req: NextRequest) {
           userId: session.user.id,
           projectId: ctx.projectId,
           type: 'SETTINGS_CHANGED',
-          description: `Invited user ${created.email} as ${created.role}`,
-          metadata: { invitedUserId: created.id, role: created.role },
+          description: `Invited user ${created.email} as ${roles.membershipRole}`,
+          metadata: {
+            invitedUserId: created.id,
+            role: roles.membershipRole,
+            globalRole: roles.globalRole,
+          },
         },
       });
       return created;
     });
 
-    return NextResponse.json({ user }, { status: 201 });
+    return NextResponse.json({ user: toProjectUser(user) }, { status: 201 });
   } catch (error) {
     if (error instanceof ForbiddenError) {
       return NextResponse.json({ error: error.message }, { status: error.statusCode });

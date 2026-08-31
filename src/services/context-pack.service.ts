@@ -10,6 +10,13 @@ import {
 
 type DbClient = Prisma.TransactionClient;
 
+export class CompanyPackRequiredError extends Error {
+  constructor() {
+    super('Company must have a published context pack first');
+    this.name = 'CompanyPackRequiredError';
+  }
+}
+
 export class ContextPackService {
   canonicalizeAndHash(pack: unknown): string {
     return hashContextPack(pack);
@@ -89,7 +96,7 @@ export class ContextPackService {
         include: { company: { include: { activeContextVersion: true } } },
       });
       if (!project?.company.activeContextVersion) {
-        throw new Error('Company must have a published context pack first');
+        throw new CompanyPackRequiredError();
       }
       const companyPack = project.company.activeContextVersion.pack as ContextPack;
       validateComposition(companyPack, input.pack);

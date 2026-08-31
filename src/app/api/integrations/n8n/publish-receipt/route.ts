@@ -11,6 +11,14 @@ import {
 
 export const runtime = 'nodejs';
 
+class PublishTransitionError extends Error {
+  status = 422;
+  constructor(message: string) {
+    super(message);
+    this.name = 'PublishTransitionError';
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const rawBody = await req.text();
@@ -94,14 +102,22 @@ export async function POST(req: NextRequest) {
       });
 
       if (payload.status === 'SUCCESS') {
-        // Sole authority to transition to PUBLISHED.
-        await tx.content.update({
-          where: { id: payload.contentId },
+        const published = await tx.content.updateMany({
+          where: {
+            id: payload.contentId,
+            currentRevisionId: payload.revisionId,
+            status: { in: ['APPROVED', 'SCHEDULED'] },
+          },
           data: {
             status: 'PUBLISHED',
             publishedAt: payload.publishedAt ? new Date(payload.publishedAt) : new Date(),
           },
         });
+        if (published.count !== 1) {
+          throw new PublishTransitionError(
+            'Publish receipt revision is not the current revision'
+          );
+        }
 
         await tx.activityLog.create({
           data: {
@@ -151,6 +167,9 @@ export async function POST(req: NextRequest) {
     }
     if (error instanceof SyntaxError) {
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+    }
+    if (error instanceof PublishTransitionError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
     }
     console.error('POST /api/integrations/n8n/publish-receipt error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

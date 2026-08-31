@@ -94,6 +94,7 @@ jest.mock('@/lib/project/context', () => {
 
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
+import { resolveProjectContext } from '@/lib/project/context';
 import { POST as draftPost } from '@/app/api/integrations/n8n/drafts/route';
 import { POST as receiptPost } from '@/app/api/integrations/n8n/publish-receipt/route';
 import { POST as approvePost } from '@/app/api/queue/[id]/approve/route';
@@ -199,6 +200,25 @@ describe('queue approve / reject / revision', () => {
 
   it('VIEWER approve returns 403', async () => {
     (getServerSession as jest.Mock).mockResolvedValue(session('VIEWER'));
+    const req = new NextRequest('http://localhost/api/queue/c1/approve', {
+      method: 'POST',
+      body: JSON.stringify({ revisionId: 'r1' }),
+      headers: { 'content-type': 'application/json' },
+    });
+    const res = await approvePost(req, { params: { id: 'c1' } });
+    expect(res.status).toBe(403);
+  });
+
+  it('SERVICE cannot approve even with a REVIEWER project membership', async () => {
+    (getServerSession as jest.Mock).mockResolvedValue(session('SERVICE', 'svc-1'));
+    (resolveProjectContext as jest.Mock).mockResolvedValueOnce({
+      projectId: 'project-1',
+      slug: 'project-1',
+      name: 'Project 1',
+      role: 'REVIEWER',
+      company: { id: 'company-1', slug: 'company-1', name: 'Company 1' },
+      projects: [],
+    });
     const req = new NextRequest('http://localhost/api/queue/c1/approve', {
       method: 'POST',
       body: JSON.stringify({ revisionId: 'r1' }),
@@ -341,13 +361,13 @@ describe('publish receipt', () => {
       content: { status: 'APPROVED', projectId: 'proj_aeon', currentRevisionId: 'r1' },
     });
 
-    const contentUpdate = jest.fn().mockResolvedValue({ id: 'c1', status: 'PUBLISHED' });
+    const contentUpdateMany = jest.fn().mockResolvedValue({ count: 1 });
     mockedPrisma.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) =>
       fn({
         publishReceipt: {
           create: jest.fn().mockResolvedValue({ id: 'pr1', status: 'SUCCESS' }),
         },
-        content: { update: contentUpdate },
+        content: { updateMany: contentUpdateMany },
         activityLog: { create: jest.fn().mockResolvedValue({}) },
       })
     );
@@ -358,9 +378,12 @@ describe('publish receipt', () => {
     );
     const res = await receiptPost(req);
     expect(res.status).toBe(201);
-    expect(contentUpdate).toHaveBeenCalledWith(
+    expect(contentUpdateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'c1' },
+        where: expect.objectContaining({
+          id: 'c1',
+          currentRevisionId: 'r1',
+        }),
         data: expect.objectContaining({ status: 'PUBLISHED' }),
       })
     );
@@ -387,6 +410,34 @@ describe('publish receipt', () => {
     const res = await receiptPost(req);
     expect(res.status).toBe(422);
     expect(mockedPrisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('rolls back SUCCESS when the in-transaction revision update matches no rows', async () => {
+    mockedPrisma.publishReceipt.findUnique.mockResolvedValue(null);
+    mockedPrisma.contentRevision.findUnique.mockResolvedValue({
+      id: 'r1',
+      contentId: 'c1',
+      contentHash: 'abc123',
+      title: 'T',
+      guardianResult: 'ALLOW',
+      content: { status: 'APPROVED', projectId: 'proj_aeon', currentRevisionId: 'r1' },
+    });
+    mockedPrisma.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) =>
+      fn({
+        publishReceipt: {
+          create: jest.fn().mockResolvedValue({ id: 'pr-race' }),
+        },
+        content: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+        activityLog: { create: jest.fn() },
+      })
+    );
+
+    const req = makeJsonRequest(
+      'http://localhost/api/integrations/n8n/publish-receipt',
+      { ...receiptBody, eventId: 'evt-race' }
+    );
+    const res = await receiptPost(req);
+    expect(res.status).toBe(422);
   });
 
   it('rejects SUCCESS receipt when content is still PENDING_REVIEW', async () => {

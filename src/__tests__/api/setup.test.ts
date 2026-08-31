@@ -26,23 +26,44 @@ describe('/api/setup', () => {
     jest.clearAllMocks();
   });
 
-  it('GET reports existing company without requiring membership', async () => {
+  it('GET does not disclose a company the caller does not belong to', async () => {
     (getServerSession as jest.Mock).mockResolvedValue(session('ADMIN', 'admin-1'));
-    mockedPrisma.company.findFirst.mockResolvedValue({
-      id: 'cmpy_1',
-      name: 'Adaptive',
-      slug: 'adaptive',
-      setupCompletedAt: new Date(),
-    });
     mockedPrisma.projectMember.findMany.mockResolvedValue([]);
 
     const res = await GET();
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.hasCompany).toBe(true);
+    expect(json.hasCompany).toBe(false);
+    expect(json.company).toBeNull();
     expect(json.canManage).toBe(true);
     expect(json.ready).toBe(false);
-    expect(json.missing).toEqual(expect.arrayContaining(['project', 'company_pack', 'project_pack']));
+    expect(mockedPrisma.company.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('GET reports the caller membership company', async () => {
+    (getServerSession as jest.Mock).mockResolvedValue(session('ADMIN', 'admin-1'));
+    mockedPrisma.projectMember.findMany.mockResolvedValue([
+      {
+        projectId: 'proj_aeon',
+        project: {
+          id: 'proj_aeon',
+          activeContextVersionId: 'pv1',
+          company: {
+            id: 'cmpy_1',
+            name: 'Adaptive',
+            slug: 'adaptive',
+            activeContextVersionId: 'cv1',
+          },
+        },
+      },
+    ]);
+
+    const res = await GET();
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.hasCompany).toBe(true);
+    expect(json.company).toEqual({ id: 'cmpy_1', name: 'Adaptive', slug: 'adaptive' });
+    expect(json.ready).toBe(true);
   });
 
   it('POST rejects non-admin', async () => {
