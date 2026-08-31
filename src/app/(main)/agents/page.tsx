@@ -74,11 +74,10 @@ export default function AgentsPage() {
   });
 
   const agents = data?.agents ?? [];
-  const departments = data?.departments ?? [];
 
   const departmentOptions = useMemo(
-    () => [{ key: "", name: "All departments" }, ...departments],
-    [departments]
+    () => [{ key: "", name: "All departments" }, ...(data?.departments ?? [])],
+    [data?.departments]
   );
 
   if (isLoading) {
