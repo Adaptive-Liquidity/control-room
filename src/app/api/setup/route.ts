@@ -11,6 +11,59 @@ import {
 import type { ContextPack } from '@/lib/context/compose-packs';
 import { isUniqueConstraintError } from '@/lib/prisma-errors';
 import { evaluateSetupGate } from '@/lib/setup/setup-gate';
+import { ACTIVE_PROJECT_COOKIE } from '@/lib/project/context';
+import { resolveProjectScope } from '@/lib/scope/project-scope';
+
+type SetupMembershipRow = {
+  projectId: string;
+  project: {
+    id: string;
+    activeContextVersionId: string | null;
+    company: {
+      id: string;
+      name: string;
+      slug: string;
+      activeContextVersionId: string | null;
+    };
+  };
+};
+
+function preferredProjectId(opts: {
+  requested?: string | null;
+  cookie?: string | null;
+  lastActive?: string | null;
+}) {
+  return opts.requested?.trim() || opts.cookie?.trim() || opts.lastActive?.trim() || undefined;
+}
+
+function companyForActiveProject(
+  userId: string,
+  memberships: SetupMembershipRow[],
+  preferred?: string
+) {
+  if (!memberships.length) return null;
+  const scope = resolveProjectScope({
+    userId,
+    requestedProjectId: preferred,
+    memberships: memberships.map((row) => ({
+      projectId: row.projectId,
+      companyId: row.project.company.id,
+      role: 'MEMBER',
+    })),
+  });
+  if (scope.ok) {
+    return (
+      memberships.find((row) => row.projectId === scope.projectId)?.project.company ?? null
+    );
+  }
+  const unique = new Map(
+    memberships.map((row) => [row.project.company.id, row.project.company])
+  );
+  if (unique.size === 1) {
+    return unique.values().next().value ?? null;
+  }
+  return null;
+}
 
 const setupSchema = z.object({
   company: z.object({
@@ -37,7 +90,7 @@ const setupSchema = z.object({
   }),
 });
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
@@ -59,7 +112,14 @@ export async function GET() {
       },
       orderBy: { createdAt: 'asc' },
     });
-    const scopedCompany = memberships[0]?.project.company ?? null;
+    const scopedCompany = companyForActiveProject(
+      session.user.id,
+      memberships,
+      preferredProjectId({
+        cookie: req.cookies.get(ACTIVE_PROJECT_COOKIE)?.value,
+        lastActive: session.user.lastActiveProjectId,
+      })
+    );
     const gate = evaluateSetupGate({
       memberships: memberships.map((row) => ({
         projectId: row.projectId,
@@ -70,7 +130,7 @@ export async function GET() {
     });
 
     return NextResponse.json({
-      hasCompany: Boolean(scopedCompany),
+      hasCompany: memberships.length > 0,
       company: scopedCompany
         ? { id: scopedCompany.id, name: scopedCompany.name, slug: scopedCompany.slug }
         : null,
@@ -91,15 +151,38 @@ export async function POST(req: NextRequest) {
 
     const body = setupSchema.parse(await req.json());
 
-    const membershipCompany = await prisma.projectMember.findFirst({
+    const memberships = await prisma.projectMember.findMany({
       where: { userId: session.user.id },
-      select: { project: { select: { companyId: true } } },
+      include: {
+        project: {
+          select: {
+            id: true,
+            activeContextVersionId: true,
+            company: {
+              select: { id: true, name: true, slug: true, activeContextVersionId: true },
+            },
+          },
+        },
+      },
       orderBy: { createdAt: 'asc' },
     });
-    const existingCompany = membershipCompany
-      ? await prisma.company.findUnique({
-          where: { id: membershipCompany.project.companyId },
-        })
+    const scopedCompany = companyForActiveProject(
+      session.user.id,
+      memberships,
+      preferredProjectId({
+        requested: req.headers.get('x-project-id'),
+        cookie: req.cookies.get(ACTIVE_PROJECT_COOKIE)?.value,
+        lastActive: session.user.lastActiveProjectId,
+      })
+    );
+    if (memberships.length > 0 && !scopedCompany) {
+      return NextResponse.json(
+        { error: 'Select an active project before adding another project' },
+        { status: 409 }
+      );
+    }
+    const existingCompany = scopedCompany
+      ? await prisma.company.findUnique({ where: { id: scopedCompany.id } })
       : null;
 
     const projectPack: ContextPack = {
