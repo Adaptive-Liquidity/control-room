@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { z } from 'zod';
 import { authOptions } from '@/lib/auth';
-import { ForbiddenError, requirePermission } from '@/lib/rbac';
+import { ForbiddenError } from '@/lib/rbac';
 import { campaignService } from '@/services/campaign.service';
 import {
   ForbiddenProjectError,
   SetupRequiredError,
+  requireProjectPermission,
   resolveProjectContext,
 } from '@/lib/project/context';
 
@@ -20,10 +21,11 @@ export async function POST(
 ) {
   try {
     const session = await getServerSession(authOptions);
-    requirePermission(session, 'campaign.launch');
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const ctx = await resolveProjectContext({
       requestedProjectId: req.headers.get('x-project-id'),
     });
+    requireProjectPermission(ctx, 'campaign.launch');
     const { disabled } = bodySchema.parse(await req.json());
     const campaign = await campaignService.setAutoGenDisabled(
       params.id,

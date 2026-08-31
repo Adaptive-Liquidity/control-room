@@ -4,6 +4,11 @@ import {
   permissionsForRole,
   requirePermission,
 } from '@/lib/rbac';
+import {
+  ForbiddenProjectError,
+  requireProjectPermission,
+  type ProjectContext,
+} from '@/lib/project/context';
 import type { Session } from 'next-auth';
 
 function sessionFor(role: string, id = 'user-1'): Session {
@@ -66,6 +71,16 @@ describe('RBAC', () => {
   it('requirePermission allows REVIEWER to approve', () => {
     expect(() =>
       requirePermission(sessionFor('REVIEWER'), 'content.approve')
+    ).not.toThrow();
+  });
+
+  it('requireProjectPermission uses membership role, not a global role', () => {
+    const ctx = { role: 'VIEWER' } as ProjectContext;
+    expect(() => requireProjectPermission(ctx, 'content.approve')).toThrow(
+      ForbiddenProjectError
+    );
+    expect(() =>
+      requireProjectPermission({ role: 'REVIEWER' } as ProjectContext, 'content.approve')
     ).not.toThrow();
   });
 });

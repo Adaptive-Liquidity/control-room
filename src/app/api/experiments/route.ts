@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { z } from 'zod';
 import { authOptions } from '@/lib/auth';
-import { ForbiddenError, requirePermission } from '@/lib/rbac';
+import { ForbiddenError } from '@/lib/rbac';
 import { ExperimentServiceError, experimentService } from '@/services/experiment.service';
 import {
   ForbiddenProjectError,
   SetupRequiredError,
+  requireProjectPermission,
   resolveProjectContext,
 } from '@/lib/project/context';
 
@@ -54,10 +55,11 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
-    requirePermission(session, 'content.edit');
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const ctx = await resolveProjectContext({
       requestedProjectId: req.headers.get('x-project-id'),
     });
+    requireProjectPermission(ctx, 'content.edit');
     const data = createSchema.parse(await req.json());
     const experiment = await experimentService.create({
       ...data,

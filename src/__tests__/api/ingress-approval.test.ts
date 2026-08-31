@@ -36,6 +36,13 @@ jest.mock('@/lib/prisma', () => ({
     user: {
       findFirst: jest.fn(),
     },
+    projectMember: {
+      findFirst: jest.fn(),
+      findUnique: jest.fn(),
+    },
+    campaign: {
+      findUnique: jest.fn(),
+    },
     activityLog: {
       create: jest.fn(),
     },
@@ -66,15 +73,21 @@ jest.mock('next-auth', () => ({
 
 jest.mock('@/lib/project/context', () => {
   const actual = jest.requireActual('@/lib/project/context');
+  const { getServerSession } = jest.requireMock('next-auth') as {
+    getServerSession: jest.Mock;
+  };
   return {
     ...actual,
-    resolveProjectContext: jest.fn().mockResolvedValue({
-      projectId: 'project-1',
-      slug: 'project-1',
-      name: 'Project 1',
-      role: 'REVIEWER',
-      company: { id: 'company-1', slug: 'company-1', name: 'Company 1' },
-      projects: [],
+    resolveProjectContext: jest.fn().mockImplementation(async () => {
+      const session = await getServerSession();
+      return {
+        projectId: 'project-1',
+        slug: 'project-1',
+        name: 'Project 1',
+        role: session?.user?.role ?? 'REVIEWER',
+        company: { id: 'company-1', slug: 'company-1', name: 'Company 1' },
+        projects: [],
+      };
     }),
   };
 });
@@ -109,6 +122,7 @@ const draftBody = {
   externalDraftId: 'ext-draft-1',
   workflowId: 'wf-1',
   executionId: 'exec-1',
+  projectId: 'proj_aeon',
   resumeUrl: 'https://n8n.example/webhook/wait/abc',
   content: {
     title: 'Test draft',
@@ -139,6 +153,7 @@ describe('n8n draft ingress', () => {
   it('returns idempotent existing draft by externalDraftId', async () => {
     mockedPrisma.content.findUnique.mockResolvedValue({
       id: 'c1',
+      projectId: 'proj_aeon',
       currentRevisionId: 'r1',
       status: 'PENDING_REVIEW',
       guardianScore: 88,
@@ -155,6 +170,23 @@ describe('n8n draft ingress', () => {
       revisionId: 'r1',
       idempotent: true,
     });
+    expect(mockedPrisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('returns 409 when externalDraftId already exists on another project', async () => {
+    mockedPrisma.content.findUnique.mockResolvedValue({
+      id: 'c-other',
+      projectId: 'proj_other',
+      currentRevisionId: 'r-other',
+      status: 'PENDING_REVIEW',
+      guardianScore: 88,
+      author: { id: 'u1', email: 's@t', name: 'svc', role: 'SERVICE' },
+      revisions: [{ id: 'r-other' }],
+    });
+
+    const req = makeJsonRequest('http://localhost/api/integrations/n8n/drafts', draftBody);
+    const res = await draftPost(req);
+    expect(res.status).toBe(409);
     expect(mockedPrisma.$transaction).not.toHaveBeenCalled();
   });
 });
@@ -306,7 +338,7 @@ describe('publish receipt', () => {
       contentHash: 'abc123',
       title: 'T',
       guardianResult: 'ALLOW',
-      content: { status: 'APPROVED', projectId: 'proj_aeon' },
+      content: { status: 'APPROVED', projectId: 'proj_aeon', currentRevisionId: 'r1' },
     });
 
     const contentUpdate = jest.fn().mockResolvedValue({ id: 'c1', status: 'PUBLISHED' });
@@ -337,6 +369,26 @@ describe('publish receipt', () => {
     );
   });
 
+  it('rejects SUCCESS receipt when revision is not current', async () => {
+    mockedPrisma.publishReceipt.findUnique.mockResolvedValue(null);
+    mockedPrisma.contentRevision.findUnique.mockResolvedValue({
+      id: 'r1',
+      contentId: 'c1',
+      contentHash: 'abc123',
+      title: 'T',
+      guardianResult: 'ALLOW',
+      content: { status: 'APPROVED', projectId: 'proj_aeon', currentRevisionId: 'r-newer' },
+    });
+
+    const req = makeJsonRequest(
+      'http://localhost/api/integrations/n8n/publish-receipt',
+      { ...receiptBody, eventId: 'evt-stale-rev' }
+    );
+    const res = await receiptPost(req);
+    expect(res.status).toBe(422);
+    expect(mockedPrisma.$transaction).not.toHaveBeenCalled();
+  });
+
   it('rejects SUCCESS receipt when content is still PENDING_REVIEW', async () => {
     mockedPrisma.publishReceipt.findUnique.mockResolvedValue(null);
     mockedPrisma.contentRevision.findUnique.mockResolvedValue({
@@ -345,7 +397,7 @@ describe('publish receipt', () => {
       contentHash: 'abc123',
       title: 'T',
       guardianResult: 'ALLOW',
-      content: { status: 'PENDING_REVIEW', projectId: 'proj_aeon' },
+      content: { status: 'PENDING_REVIEW', projectId: 'proj_aeon', currentRevisionId: 'r1' },
     });
 
     const req = makeJsonRequest(
@@ -365,7 +417,7 @@ describe('publish receipt', () => {
       contentHash: 'abc123',
       title: 'T',
       guardianResult: 'ALLOW',
-      content: { status: 'APPROVED', projectId: 'proj_aeon' },
+      content: { status: 'APPROVED', projectId: 'proj_aeon', currentRevisionId: 'r1' },
     });
 
     const contentUpdate = jest.fn();

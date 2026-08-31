@@ -9,6 +9,7 @@ import { channelSchema, contentTypeSchema } from '@/lib/n8n/contracts';
 import {
   ForbiddenProjectError,
   SetupRequiredError,
+  requireProjectPermission,
   resolveProjectContext,
 } from '@/lib/project/context';
 
@@ -32,6 +33,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const ctx = await resolveProjectContext({
       requestedProjectId: req.headers.get('x-project-id'),
     });
+    requireProjectPermission(ctx, 'content.approve');
 
     const body = bodySchema.parse(await req.json());
     const content = await approvalService.decide({

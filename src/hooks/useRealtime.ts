@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useQueryClient } from '@tanstack/react-query';
 import { getPusherClient } from '@/lib/pusher/client';
@@ -23,15 +23,36 @@ type ContentEventPayload = {
 export function useRealtime() {
   const { status } = useSession();
   const queryClient = useQueryClient();
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (status !== 'authenticated') return;
+    if (status !== 'authenticated') {
+      setActiveProjectId(null);
+      return;
+    }
+    let cancelled = false;
+    void fetch('/api/projects')
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return response.json() as Promise<{ activeProjectId?: string }>;
+      })
+      .then((data) => {
+        if (cancelled) return;
+        setActiveProjectId(data?.activeProjectId ?? null);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [status]);
+
+  useEffect(() => {
+    if (status !== 'authenticated' || !activeProjectId) return;
 
     const pusher = getPusherClient();
     if (!pusher) return;
-    let cancelled = false;
     let channel: ReturnType<typeof pusher.subscribe> | null = null;
-    let channelName: string | null = null;
+    const channelName = projectChannel(activeProjectId);
 
     const onContentEvent = (data: ContentEventPayload) => {
       void queryClient.invalidateQueries({ queryKey: ['queue'] });
@@ -50,30 +71,19 @@ export function useRealtime() {
       void queryClient.invalidateQueries({ queryKey: ['dashboard'] });
     };
 
-    void fetch('/api/projects')
-      .then(async (response) => {
-        if (!response.ok) return null;
-        return response.json() as Promise<{ activeProjectId?: string }>;
-      })
-      .then((data) => {
-        if (cancelled || !data?.activeProjectId) return;
-        channelName = projectChannel(data.activeProjectId);
-        channel = pusher.subscribe(channelName);
-        for (const event of CONTENT_REALTIME_EVENTS) {
-          channel.bind(event, onContentEvent);
-        }
-        channel.bind(AGENT_RUN_UPDATED_EVENT, onAgentRunUpdated);
-      })
-      .catch(() => undefined);
+    channel = pusher.subscribe(channelName);
+    for (const event of CONTENT_REALTIME_EVENTS) {
+      channel.bind(event, onContentEvent);
+    }
+    channel.bind(AGENT_RUN_UPDATED_EVENT, onAgentRunUpdated);
 
     return () => {
-      cancelled = true;
-      if (!channel || !channelName) return;
+      if (!channel) return;
       for (const event of CONTENT_REALTIME_EVENTS) {
         channel.unbind(event, onContentEvent);
       }
       channel.unbind(AGENT_RUN_UPDATED_EVENT, onAgentRunUpdated);
       pusher.unsubscribe(channelName);
     };
-  }, [status, queryClient]);
+  }, [status, queryClient, activeProjectId]);
 }

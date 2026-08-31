@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -21,7 +21,7 @@ type ProjectRow = {
 };
 
 export function ProjectSwitcher() {
-  const router = useRouter();
+  const queryClient = useQueryClient();
   const [projects, setProjects] = useState<ProjectRow[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
 
@@ -53,8 +53,8 @@ export function ProjectSwitcher() {
       body: JSON.stringify({ projectId }),
     });
     if (!res.ok) return;
-    setActiveId(projectId);
-    router.refresh();
+    queryClient.clear();
+    window.location.reload();
   }
 
   if (!projects.length) return null;

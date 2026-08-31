@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { z } from 'zod';
 import { authOptions } from '@/lib/auth';
-import { ForbiddenError, requirePermission } from '@/lib/rbac';
+import { ForbiddenError } from '@/lib/rbac';
 import {
   ForbiddenProjectError,
   SetupRequiredError,
+  requireProjectPermission,
   resolveProjectContext,
 } from '@/lib/project/context';
 import {
@@ -24,11 +25,11 @@ export async function POST(
 ) {
   try {
     const session = await getServerSession(authOptions);
-    // Scheduling is a post-approval publishing control — same gate as approve.
-    requirePermission(session, 'content.approve');
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const ctx = await resolveProjectContext({
       requestedProjectId: req.headers.get('x-project-id'),
     });
+    requireProjectPermission(ctx, 'content.approve');
 
     const { scheduledAt } = bodySchema.parse(await req.json());
     const existing = await contentService.getById(params.id, ctx.projectId);

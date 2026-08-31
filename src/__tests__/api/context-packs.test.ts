@@ -10,15 +10,21 @@ jest.mock('next-auth', () => ({
 
 jest.mock('@/lib/project/context', () => {
   const actual = jest.requireActual('@/lib/project/context');
+  const { getServerSession } = jest.requireMock('next-auth') as {
+    getServerSession: jest.Mock;
+  };
   return {
     ...actual,
-    resolveProjectContext: jest.fn().mockResolvedValue({
-      projectId: 'proj_aeon',
-      slug: 'aeon',
-      name: 'AEON',
-      role: 'ADMIN',
-      company: { id: 'cmpy_1', slug: 'adaptive', name: 'Adaptive' },
-      projects: [],
+    resolveProjectContext: jest.fn().mockImplementation(async () => {
+      const session = await getServerSession();
+      return {
+        projectId: 'proj_aeon',
+        slug: 'aeon',
+        name: 'AEON',
+        role: session?.user?.role ?? 'ADMIN',
+        company: { id: 'cmpy_1', slug: 'adaptive', name: 'Adaptive' },
+        projects: [],
+      };
     }),
   };
 });

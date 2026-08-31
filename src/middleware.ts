@@ -10,7 +10,7 @@ export default withAuth(
     if (token?.needsSetup && !onSetup) {
       return NextResponse.redirect(new URL('/setup', req.url));
     }
-    if (token && !token.needsSetup && onSetup) {
+    if (token && !token.needsSetup && onSetup && token.role !== 'ADMIN') {
       return NextResponse.redirect(new URL('/dashboard', req.url));
     }
     return NextResponse.next();

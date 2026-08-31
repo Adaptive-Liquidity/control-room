@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { z } from 'zod';
 import { authOptions } from '@/lib/auth';
-import { ForbiddenError, requirePermission } from '@/lib/rbac';
+import { ForbiddenError } from '@/lib/rbac';
 import {
   ForbiddenProjectError,
   SetupRequiredError,
+  requireProjectPermission,
   resolveProjectContext,
 } from '@/lib/project/context';
 import { prisma } from '@/lib/prisma';
@@ -88,12 +89,16 @@ export async function GET(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const body = putSchema.parse(await req.json());
-    requirePermission(session, body.scope === 'company' ? 'company.manage' : 'project.manage');
 
     const ctx = await resolveProjectContext({
       requestedProjectId: req.headers.get('x-project-id'),
     });
+    requireProjectPermission(
+      ctx,
+      body.scope === 'company' ? 'company.manage' : 'project.manage'
+    );
 
     const project = await prisma.project.findUnique({
       where: { id: ctx.projectId },

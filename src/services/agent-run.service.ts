@@ -270,11 +270,13 @@ export class AgentRunService {
       })
     );
 
-    const unregistered = await this.unregisteredAgentCards(
-      agents.map((a) => a.name),
-      since,
-      projectId
-    );
+    const unregistered = opts?.departmentKey
+      ? []
+      : await this.unregisteredAgentCards(
+          agents.map((a) => a.name),
+          since,
+          projectId
+        );
 
     return [...enriched, ...unregistered];
   }

@@ -1,7 +1,8 @@
 jest.mock('@/lib/prisma', () => ({
   prisma: {
-    company: { findFirst: jest.fn() },
-    projectMember: { findMany: jest.fn() },
+    company: { findFirst: jest.fn(), findUnique: jest.fn() },
+    projectMember: { findMany: jest.fn(), findFirst: jest.fn() },
+    $transaction: jest.fn(),
   },
 }));
 
@@ -16,8 +17,8 @@ import { session } from '../helpers/n8n';
 import { NextRequest } from 'next/server';
 
 const mockedPrisma = prisma as unknown as {
-  company: { findFirst: jest.Mock };
-  projectMember: { findMany: jest.Mock };
+  company: { findFirst: jest.Mock; findUnique: jest.Mock };
+  projectMember: { findMany: jest.Mock; findFirst: jest.Mock };
 };
 
 describe('/api/setup', () => {

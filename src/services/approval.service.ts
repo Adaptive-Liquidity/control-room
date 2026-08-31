@@ -1,7 +1,7 @@
 import type { Session } from 'next-auth';
 import type { Channel, ContentType, Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
-import { requirePermission } from '@/lib/rbac';
+import { ForbiddenError, hasPermission } from '@/lib/rbac';
 import {
   ConflictError,
   ValidationServiceError,
@@ -35,7 +35,18 @@ export class ApprovalService {
       type?: ContentType;
     };
   }) {
-    requirePermission(opts.session, 'content.approve');
+    const membership = await prisma.projectMember.findUnique({
+      where: {
+        projectId_userId: {
+          projectId: opts.projectId,
+          userId: opts.session.user.id,
+        },
+      },
+      select: { role: true },
+    });
+    if (!membership || !hasPermission(membership.role, 'content.approve')) {
+      throw new ForbiddenError('Missing permission: content.approve');
+    }
     const reviewerId = opts.session.user.id;
 
     if (opts.decision === 'REJECTED' && !opts.comment?.trim()) {

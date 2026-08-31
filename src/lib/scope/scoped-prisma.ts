@@ -47,14 +47,17 @@ export function createScopedDelegate<T extends Delegate>(
         }
 
         if (op === 'createMany') {
+          const stamp = (row: Record<string, unknown>) => {
+            if (row.projectId != null && row.projectId !== projectId) {
+              throw new Error('Cannot create record for a different projectId');
+            }
+            return { ...row, projectId };
+          };
           const data = Array.isArray(arg0.data)
-            ? arg0.data.map((row: Record<string, unknown>) => {
-                if (row.projectId != null && row.projectId !== projectId) {
-                  throw new Error('Cannot create record for a different projectId');
-                }
-                return { ...row, projectId };
-              })
-            : arg0.data;
+            ? arg0.data.map(stamp)
+            : arg0.data
+              ? stamp(arg0.data)
+              : arg0.data;
           return value.call(target, { ...arg0, data });
         }
 
@@ -62,6 +65,14 @@ export function createScopedDelegate<T extends Delegate>(
         if (op === 'findUnique' && typeof target.findFirst === 'function') {
           const where = mergeWhere(projectId, arg0.where);
           return target.findFirst.call(target, { ...arg0, where });
+        }
+
+        if (
+          (op === 'findUniqueOrThrow' || op === 'findFirstOrThrow') &&
+          typeof target.findFirstOrThrow === 'function'
+        ) {
+          const where = mergeWhere(projectId, arg0.where);
+          return target.findFirstOrThrow.call(target, { ...arg0, where });
         }
 
         if (

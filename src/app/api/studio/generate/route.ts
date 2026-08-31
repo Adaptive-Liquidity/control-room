@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
-import { ForbiddenError, requirePermission } from "@/lib/rbac";
+import { ForbiddenError } from "@/lib/rbac";
 import { callN8nGenerate, generateRequestSchema } from "@/lib/n8n/generate-client";
 import {
   ForbiddenProjectError,
   SetupRequiredError,
+  requireProjectPermission,
   resolveProjectContext,
 } from "@/lib/project/context";
 import { prisma } from "@/lib/prisma";
@@ -24,19 +25,21 @@ export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    requirePermission(session, "content.edit");
 
     const ctx = await resolveProjectContext({
       requestedProjectId: req.headers.get("x-project-id"),
     });
+    requireProjectPermission(ctx, "content.edit");
 
     const body = await req.json();
     const validated = generateRequestSchema.parse(body);
 
+    let campaign: { id: string; objective: string | null; thesis: string | null } | null =
+      null;
     if (validated.campaignId) {
-      const campaign = await prisma.campaign.findFirst({
+      campaign = await prisma.campaign.findFirst({
         where: { id: validated.campaignId, projectId: ctx.projectId },
-        select: { id: true },
+        select: { id: true, objective: true, thesis: true },
       });
       if (!campaign) {
         return NextResponse.json(
@@ -79,6 +82,9 @@ export async function POST(req: NextRequest) {
       project: project.activeContextVersion.pack as ContextPack,
       companyVersionId: project.company.activeContextVersion.id,
       projectVersionId: project.activeContextVersion.id,
+      campaign: campaign
+        ? { objective: campaign.objective, thesis: campaign.thesis }
+        : undefined,
     });
     const contextPack = composed.pack;
     const composedHash = composed.composedHash;

@@ -1,4 +1,5 @@
 import { createHash } from 'crypto';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { canonicalizeJson } from '@/lib/context/canonicalize-json';
 import {
@@ -6,6 +7,8 @@ import {
   validateComposition,
   type ContextPack,
 } from '@/lib/context/compose-packs';
+
+type DbClient = Prisma.TransactionClient;
 
 export class ContextPackService {
   canonicalizeAndHash(pack: unknown): string {
@@ -31,20 +34,23 @@ export class ContextPackService {
     return project;
   }
 
-  async publishCompanyPack(input: {
-    companyId: string;
-    pack: ContextPack;
-    createdById?: string;
-    summary?: string;
-  }) {
-    const contentHash = this.canonicalizeAndHash(input.pack);
-    return prisma.$transaction(async (tx) => {
-      const latest = await tx.companyContextVersion.findFirst({
+  async publishCompanyPack(
+    input: {
+      companyId: string;
+      pack: ContextPack;
+      createdById?: string;
+      summary?: string;
+    },
+    tx?: DbClient
+  ) {
+    const run = async (db: DbClient) => {
+      const contentHash = this.canonicalizeAndHash(input.pack);
+      const latest = await db.companyContextVersion.findFirst({
         where: { companyId: input.companyId },
         orderBy: { version: 'desc' },
       });
       const version = (latest?.version ?? 0) + 1;
-      const row = await tx.companyContextVersion.create({
+      const row = await db.companyContextVersion.create({
         data: {
           companyId: input.companyId,
           version,
@@ -56,38 +62,45 @@ export class ContextPackService {
           publishedAt: new Date(),
         },
       });
-      await tx.company.update({
+      await db.company.update({
         where: { id: input.companyId },
-        data: { activeContextVersionId: row.id, setupCompletedAt: new Date() },
+        data: {
+          activeContextVersionId: row.id,
+          ...(latest ? {} : { setupCompletedAt: new Date() }),
+        },
       });
       return row;
-    });
+    };
+    return tx ? run(tx) : prisma.$transaction(run);
   }
 
-  async publishProjectPack(input: {
-    projectId: string;
-    pack: ContextPack;
-    createdById?: string;
-    summary?: string;
-  }) {
-    const project = await prisma.project.findUnique({
-      where: { id: input.projectId },
-      include: { company: { include: { activeContextVersion: true } } },
-    });
-    if (!project?.company.activeContextVersion) {
-      throw new Error('Company must have a published context pack first');
-    }
-    const companyPack = project.company.activeContextVersion.pack as ContextPack;
-    validateComposition(companyPack, input.pack);
+  async publishProjectPack(
+    input: {
+      projectId: string;
+      pack: ContextPack;
+      createdById?: string;
+      summary?: string;
+    },
+    tx?: DbClient
+  ) {
+    const run = async (db: DbClient) => {
+      const project = await db.project.findUnique({
+        where: { id: input.projectId },
+        include: { company: { include: { activeContextVersion: true } } },
+      });
+      if (!project?.company.activeContextVersion) {
+        throw new Error('Company must have a published context pack first');
+      }
+      const companyPack = project.company.activeContextVersion.pack as ContextPack;
+      validateComposition(companyPack, input.pack);
 
-    const contentHash = this.canonicalizeAndHash(input.pack);
-    return prisma.$transaction(async (tx) => {
-      const latest = await tx.projectContextVersion.findFirst({
+      const contentHash = this.canonicalizeAndHash(input.pack);
+      const latest = await db.projectContextVersion.findFirst({
         where: { projectId: input.projectId },
         orderBy: { version: 'desc' },
       });
       const version = (latest?.version ?? 0) + 1;
-      const row = await tx.projectContextVersion.create({
+      const row = await db.projectContextVersion.create({
         data: {
           projectId: input.projectId,
           version,
@@ -99,12 +112,13 @@ export class ContextPackService {
           publishedAt: new Date(),
         },
       });
-      await tx.project.update({
+      await db.project.update({
         where: { id: input.projectId },
         data: { activeContextVersionId: row.id },
       });
       return row;
-    });
+    };
+    return tx ? run(tx) : prisma.$transaction(run);
   }
 }
 

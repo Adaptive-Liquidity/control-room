@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { z } from 'zod';
 import { authOptions } from '@/lib/auth';
-import { ForbiddenError, requirePermission } from '@/lib/rbac';
+import { ForbiddenError } from '@/lib/rbac';
 import { prisma } from '@/lib/prisma';
 import { scopedPrisma } from '@/lib/scope/scoped-prisma';
 import { ExperimentServiceError, experimentService } from '@/services/experiment.service';
 import {
   ForbiddenProjectError,
   SetupRequiredError,
+  requireProjectPermission,
   resolveProjectContext,
 } from '@/lib/project/context';
 
@@ -68,10 +69,11 @@ export async function PATCH(
 ) {
   try {
     const session = await getServerSession(authOptions);
-    requirePermission(session, 'content.edit');
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const ctx = await resolveProjectContext({
       requestedProjectId: req.headers.get('x-project-id'),
     });
+    requireProjectPermission(ctx, 'content.edit');
     const data = updateSchema.parse(await req.json());
     const experiment = await experimentService.update(params.id, {
       ...data,

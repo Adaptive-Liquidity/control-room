@@ -4,11 +4,12 @@ import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { UserRole } from '@prisma/client';
 import { authOptions } from '@/lib/auth';
-import { ForbiddenError, requirePermission } from '@/lib/rbac';
+import { ForbiddenError } from '@/lib/rbac';
 import { prisma } from '@/lib/prisma';
 import {
   ForbiddenProjectError,
   SetupRequiredError,
+  requireProjectPermission,
   resolveProjectContext,
 } from '@/lib/project/context';
 
@@ -47,10 +48,11 @@ function userSelectForProject(projectId: string) {
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
-    requirePermission(session, 'settings.manage');
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const ctx = await resolveProjectContext({
       requestedProjectId: req.headers.get('x-project-id'),
     });
+    requireProjectPermission(ctx, 'settings.manage');
 
     const users = await prisma.user.findMany({
       where: { memberships: { some: { projectId: ctx.projectId } } },
@@ -75,20 +77,40 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
-    requirePermission(session, 'settings.manage');
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const ctx = await resolveProjectContext({
       requestedProjectId: req.headers.get('x-project-id'),
     });
+    requireProjectPermission(ctx, 'settings.manage');
 
     const body = inviteSchema.parse(await req.json());
     const email = body.email.toLowerCase();
 
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) {
-      return NextResponse.json(
-        { error: 'An account with this email already exists' },
-        { status: 409 }
-      );
+      const user = await prisma.$transaction(async (tx) => {
+        await tx.projectMember.upsert({
+          where: {
+            projectId_userId: { projectId: ctx.projectId, userId: existing.id },
+          },
+          create: { projectId: ctx.projectId, userId: existing.id, role: body.role },
+          update: { role: body.role },
+        });
+        await tx.activityLog.create({
+          data: {
+            userId: session.user.id,
+            projectId: ctx.projectId,
+            type: 'SETTINGS_CHANGED',
+            description: `Added existing user ${existing.email} to project as ${body.role}`,
+            metadata: { invitedUserId: existing.id, role: body.role, existing: true },
+          },
+        });
+        return tx.user.findUniqueOrThrow({
+          where: { id: existing.id },
+          select: userSelectForProject(ctx.projectId),
+        });
+      });
+      return NextResponse.json({ user, existing: true });
     }
 
     const hashedPassword = await bcrypt.hash(body.password, 12);

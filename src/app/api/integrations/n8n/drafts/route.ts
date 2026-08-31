@@ -24,14 +24,35 @@ async function resolveServiceAuthorIdForProject(projectId: string): Promise<stri
     },
     select: { userId: true },
   });
-  if (member) return member.userId;
+  return member?.userId ?? null;
+}
 
-  // Fallback: any active SERVICE user (single-tenant transition)
-  const serviceUser = await prisma.user.findFirst({
-    where: { role: 'SERVICE', isActive: true },
-    select: { id: true },
-  });
-  return serviceUser?.id ?? null;
+async function resolveDraftProjectId(payload: {
+  projectId?: string;
+  campaignId?: string;
+}): Promise<{ ok: true; projectId: string } | { ok: false; status: number; error: string }> {
+  let projectId = payload.projectId ?? null;
+  if (payload.campaignId) {
+    const campaign = await prisma.campaign.findUnique({
+      where: { id: payload.campaignId },
+      select: { projectId: true },
+    });
+    if (!campaign) {
+      return { ok: false, status: 404, error: 'Campaign not found' };
+    }
+    if (projectId && projectId !== campaign.projectId) {
+      return { ok: false, status: 409, error: 'campaignId does not belong to projectId' };
+    }
+    projectId = campaign.projectId;
+  }
+  if (!projectId) {
+    return {
+      ok: false,
+      status: 400,
+      error: 'projectId required when campaignId is not provided',
+    };
+  }
+  return { ok: true, projectId };
 }
 
 export async function POST(req: NextRequest) {
@@ -45,6 +66,11 @@ export async function POST(req: NextRequest) {
     });
 
     const payload = n8nDraftIngressSchema.parse(JSON.parse(rawBody));
+    const scoped = await resolveDraftProjectId(payload);
+    if (!scoped.ok) {
+      return NextResponse.json({ error: scoped.error }, { status: scoped.status });
+    }
+    const projectId = scoped.projectId;
 
     const existing = await prisma.content.findUnique({
       where: { externalDraftId: payload.externalDraftId },
@@ -55,6 +81,12 @@ export async function POST(req: NextRequest) {
     });
 
     if (existing) {
+      if (existing.projectId !== projectId) {
+        return NextResponse.json(
+          { error: 'externalDraftId already exists on another project' },
+          { status: 409 }
+        );
+      }
       return NextResponse.json(
         {
           contentId: existing.id,
@@ -84,30 +116,6 @@ export async function POST(req: NextRequest) {
     }
 
     await assertEventIdUnused(payload.eventId);
-
-    let projectId = payload.projectId ?? null;
-    if (payload.campaignId) {
-      const campaign = await prisma.campaign.findUnique({
-        where: { id: payload.campaignId },
-        select: { projectId: true },
-      });
-      if (!campaign) {
-        return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
-      }
-      if (projectId && projectId !== campaign.projectId) {
-        return NextResponse.json(
-          { error: 'campaignId does not belong to projectId' },
-          { status: 409 }
-        );
-      }
-      projectId = campaign.projectId;
-    }
-    if (!projectId) {
-      return NextResponse.json(
-        { error: 'projectId required when campaignId is not provided' },
-        { status: 400 }
-      );
-    }
 
     const authorId = await resolveServiceAuthorIdForProject(projectId);
     if (!authorId) {

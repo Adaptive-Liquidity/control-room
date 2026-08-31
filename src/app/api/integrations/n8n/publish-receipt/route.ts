@@ -66,6 +66,12 @@ export async function POST(req: NextRequest) {
           { status: 422 }
         );
       }
+      if (revision.content.currentRevisionId !== payload.revisionId) {
+        return NextResponse.json(
+          { error: 'Publish receipt revision is not the current revision' },
+          { status: 422 }
+        );
+      }
     }
 
     const result = await prisma.$transaction(async (tx) => {

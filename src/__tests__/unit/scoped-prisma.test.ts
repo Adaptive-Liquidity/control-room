@@ -49,6 +49,33 @@ describe('scopedPrisma helpers', () => {
     expect(create).not.toHaveBeenCalled();
   });
 
+  it('stamps projectId on createMany single object and array', async () => {
+    const createMany = jest.fn().mockResolvedValue({ count: 1 });
+    const scoped = createScopedDelegate('p1', { createMany });
+    await scoped.createMany({ data: { title: 'x' } });
+    expect(createMany).toHaveBeenCalledWith({
+      data: { title: 'x', projectId: 'p1' },
+    });
+    await scoped.createMany({ data: [{ title: 'a' }, { title: 'b' }] });
+    expect(createMany).toHaveBeenLastCalledWith({
+      data: [
+        { title: 'a', projectId: 'p1' },
+        { title: 'b', projectId: 'p1' },
+      ],
+    });
+  });
+
+  it('scopes findFirstOrThrow / findUniqueOrThrow where clauses', async () => {
+    const findFirstOrThrow = jest.fn().mockResolvedValue({ id: '1' });
+    const findUniqueOrThrow = jest.fn();
+    const scoped = createScopedDelegate('p1', { findFirstOrThrow, findUniqueOrThrow });
+    await scoped.findUniqueOrThrow({ where: { id: 'c1' } });
+    expect(findFirstOrThrow).toHaveBeenCalledWith({
+      where: { id: 'c1', projectId: 'p1' },
+    });
+    expect(findUniqueOrThrow).not.toHaveBeenCalled();
+  });
+
   it('scopes update/delete/count where clauses', async () => {
     const update = jest.fn().mockResolvedValue({});
     const del = jest.fn().mockResolvedValue({});

@@ -85,9 +85,32 @@ export async function POST(req: NextRequest) {
 
     const body = setupSchema.parse(await req.json());
 
-    const existingCompany = await prisma.company.findFirst();
+    const membershipCompany = await prisma.projectMember.findFirst({
+      where: { userId: session.user.id },
+      select: { project: { select: { companyId: true } } },
+      orderBy: { createdAt: 'asc' },
+    });
+    const existingCompany = membershipCompany
+      ? await prisma.company.findUnique({
+          where: { id: membershipCompany.project.companyId },
+        })
+      : null;
+
+    const projectPack: ContextPack = {
+      schemaVersion: '1',
+      promptCore: {
+        identity: {
+          name: body.project.name,
+          oneLiner: body.project.oneLiner,
+          description: body.project.description,
+        },
+        voice: {},
+        prohibitions: { forbiddenClaims: [], requiredDisclaimers: [] },
+        keyFacts: [],
+      },
+    };
+
     if (existingCompany) {
-      // Second project under existing company
       const project = await prisma.$transaction(async (tx) => {
         const p = await tx.project.create({
           data: {
@@ -104,36 +127,45 @@ export async function POST(req: NextRequest) {
             role: 'ADMIN',
           },
         });
-        return p;
-      });
-
-      const pack: ContextPack = {
-        schemaVersion: '1',
-        promptCore: {
-          identity: {
-            name: body.project.name,
-            oneLiner: body.project.oneLiner,
-            description: body.project.description,
+        await contextPackService.publishProjectPack(
+          {
+            projectId: p.id,
+            pack: projectPack,
+            createdById: session!.user.id,
+            summary: 'Setup wizard v1',
           },
-          voice: {},
-          prohibitions: { forbiddenClaims: [], requiredDisclaimers: [] },
-          keyFacts: [],
-        },
-      };
-      await contextPackService.publishProjectPack({
-        projectId: project.id,
-        pack,
-        createdById: session!.user.id,
-        summary: 'Setup wizard v1',
-      });
-      await prisma.user.update({
-        where: { id: session!.user.id },
-        data: { lastActiveProjectId: project.id },
+          tx
+        );
+        await tx.user.update({
+          where: { id: session!.user.id },
+          data: { lastActiveProjectId: p.id },
+        });
+        return p;
       });
       return NextResponse.json({ projectId: project.id, companyId: existingCompany.id });
     }
 
-    const result = await prisma.$transaction(async (tx) => {
+    const companyPack: ContextPack = {
+      schemaVersion: '1',
+      promptCore: {
+        identity: {
+          name: body.company.name,
+          legalName: body.company.legalName,
+          oneLiner: body.company.oneLiner,
+        },
+        voice: {
+          tone: body.company.voiceTone ?? 'precise, humble, architectural',
+          dont: body.company.dontSay ?? [],
+        },
+        prohibitions: {
+          forbiddenClaims: body.company.dontSay ?? [],
+          requiredDisclaimers: [],
+        },
+        keyFacts: [],
+      },
+    };
+
+    const created = await prisma.$transaction(async (tx) => {
       const company = await tx.company.create({
         data: {
           slug: body.company.slug,
@@ -157,63 +189,34 @@ export async function POST(req: NextRequest) {
           role: 'ADMIN',
         },
       });
+      await contextPackService.publishCompanyPack(
+        {
+          companyId: company.id,
+          pack: companyPack,
+          createdById: session!.user.id,
+          summary: 'Setup wizard v1',
+        },
+        tx
+      );
+      await contextPackService.publishProjectPack(
+        {
+          projectId: project.id,
+          pack: projectPack,
+          createdById: session!.user.id,
+          summary: 'Setup wizard v1',
+        },
+        tx
+      );
+      await tx.user.update({
+        where: { id: session!.user.id },
+        data: { lastActiveProjectId: project.id },
+      });
       return { company, project };
     });
 
-    const companyPack: ContextPack = {
-      schemaVersion: '1',
-      promptCore: {
-        identity: {
-          name: body.company.name,
-          legalName: body.company.legalName,
-          oneLiner: body.company.oneLiner,
-        },
-        voice: {
-          tone: body.company.voiceTone ?? 'precise, humble, architectural',
-          dont: body.company.dontSay ?? [],
-        },
-        prohibitions: {
-          forbiddenClaims: body.company.dontSay ?? [],
-          requiredDisclaimers: [],
-        },
-        keyFacts: [],
-      },
-    };
-    await contextPackService.publishCompanyPack({
-      companyId: result.company.id,
-      pack: companyPack,
-      createdById: session!.user.id,
-      summary: 'Setup wizard v1',
-    });
-
-    const projectPack: ContextPack = {
-      schemaVersion: '1',
-      promptCore: {
-        identity: {
-          name: body.project.name,
-          oneLiner: body.project.oneLiner,
-          description: body.project.description,
-        },
-        voice: {},
-        prohibitions: { forbiddenClaims: [], requiredDisclaimers: [] },
-        keyFacts: [],
-      },
-    };
-    await contextPackService.publishProjectPack({
-      projectId: result.project.id,
-      pack: projectPack,
-      createdById: session!.user.id,
-      summary: 'Setup wizard v1',
-    });
-
-    await prisma.user.update({
-      where: { id: session!.user.id },
-      data: { lastActiveProjectId: result.project.id },
-    });
-
     return NextResponse.json({
-      companyId: result.company.id,
-      projectId: result.project.id,
+      companyId: created.company.id,
+      projectId: created.project.id,
     });
   } catch (error) {
     if (error instanceof ForbiddenError) {
