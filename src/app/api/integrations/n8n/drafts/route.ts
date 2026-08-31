@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { encrypt } from '@/lib/crypto';
 import { evaluateCampaignPolicy, CampaignPolicyRejectedError } from '@/lib/n8n/campaign-policy';
 import { n8nDraftIngressSchema } from '@/lib/n8n/contracts';
+import { riskTierFromGuardian } from '@/lib/guardian/risk-tier';
 import {
   SignatureError,
   assertEventIdUnused,
@@ -14,12 +15,44 @@ import { emitContentCreated } from '@/lib/pusher/server';
 
 export const runtime = 'nodejs';
 
-async function resolveServiceAuthorId(): Promise<string | null> {
-  const serviceUser = await prisma.user.findFirst({
-    where: { role: 'SERVICE', isActive: true },
-    select: { id: true },
+async function resolveServiceAuthorIdForProject(projectId: string): Promise<string | null> {
+  const member = await prisma.projectMember.findFirst({
+    where: {
+      projectId,
+      role: 'SERVICE',
+      user: { isActive: true },
+    },
+    select: { userId: true },
   });
-  return serviceUser?.id ?? null;
+  return member?.userId ?? null;
+}
+
+async function resolveDraftProjectId(payload: {
+  projectId?: string;
+  campaignId?: string;
+}): Promise<{ ok: true; projectId: string } | { ok: false; status: number; error: string }> {
+  let projectId = payload.projectId ?? null;
+  if (payload.campaignId) {
+    const campaign = await prisma.campaign.findUnique({
+      where: { id: payload.campaignId },
+      select: { projectId: true },
+    });
+    if (!campaign) {
+      return { ok: false, status: 404, error: 'Campaign not found' };
+    }
+    if (projectId && projectId !== campaign.projectId) {
+      return { ok: false, status: 409, error: 'campaignId does not belong to projectId' };
+    }
+    projectId = campaign.projectId;
+  }
+  if (!projectId) {
+    return {
+      ok: false,
+      status: 400,
+      error: 'projectId required when campaignId is not provided',
+    };
+  }
+  return { ok: true, projectId };
 }
 
 export async function POST(req: NextRequest) {
@@ -33,6 +66,11 @@ export async function POST(req: NextRequest) {
     });
 
     const payload = n8nDraftIngressSchema.parse(JSON.parse(rawBody));
+    const scoped = await resolveDraftProjectId(payload);
+    if (!scoped.ok) {
+      return NextResponse.json({ error: scoped.error }, { status: scoped.status });
+    }
+    const projectId = scoped.projectId;
 
     const existing = await prisma.content.findUnique({
       where: { externalDraftId: payload.externalDraftId },
@@ -43,6 +81,12 @@ export async function POST(req: NextRequest) {
     });
 
     if (existing) {
+      if (existing.projectId !== projectId) {
+        return NextResponse.json(
+          { error: 'externalDraftId already exists on another project' },
+          { status: 409 }
+        );
+      }
       return NextResponse.json(
         {
           contentId: existing.id,
@@ -73,12 +117,12 @@ export async function POST(req: NextRequest) {
 
     await assertEventIdUnused(payload.eventId);
 
-    const authorId = await resolveServiceAuthorId();
+    const authorId = await resolveServiceAuthorIdForProject(projectId);
     if (!authorId) {
       return NextResponse.json(
         {
           error:
-            'No active SERVICE user configured. Create a SERVICE account before ingesting n8n drafts.',
+            'No active SERVICE member for this project. Invite a SERVICE user to the project before ingesting n8n drafts.',
         },
         { status: 503 }
       );
@@ -104,6 +148,7 @@ export async function POST(req: NextRequest) {
           type: payload.content.type,
           channel: payload.content.channel,
           authorId,
+          projectId: projectId!,
           campaignId: payload.campaignId,
           origin: 'N8N',
           externalDraftId: payload.externalDraftId,
@@ -122,6 +167,7 @@ export async function POST(req: NextRequest) {
           channel: payload.content.channel,
         },
         authorId,
+        projectId!,
         tx
       );
 
@@ -143,6 +189,7 @@ export async function POST(req: NextRequest) {
       await tx.activityLog.create({
         data: {
           userId: authorId,
+          projectId: projectId!,
           type: 'CONTENT_CREATED',
           description: `n8n ingested draft: "${payload.content.title}"`,
           metadata: {
@@ -162,6 +209,18 @@ export async function POST(req: NextRequest) {
         status: 'PENDING_REVIEW' as const,
         guardianScore: guardianResult.score,
         guardianResult: guardianResult.result,
+        projectId: projectId!,
+        riskTier: riskTierFromGuardian(guardianResult.result, guardianResult.score),
+        requireHuman: payload.campaignId
+          ? (
+              await evaluateCampaignPolicy(payload.campaignId, tx, {
+                contentRisk: riskTierFromGuardian(
+                  guardianResult.result,
+                  guardianResult.score
+                ),
+              })
+            )?.requireHuman ?? true
+          : true,
       };
     });
 
@@ -169,6 +228,7 @@ export async function POST(req: NextRequest) {
       contentId: content.contentId,
       revisionId: content.revisionId,
       status: content.status,
+      projectId: content.projectId,
     });
 
     return NextResponse.json({ ...content, idempotent: false }, { status: 201 });

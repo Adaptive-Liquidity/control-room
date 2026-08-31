@@ -6,7 +6,9 @@ export type Permission =
   | 'content.edit'
   | 'campaign.launch'
   | 'integration.manage'
-  | 'settings.manage';
+  | 'settings.manage'
+  | 'company.manage'
+  | 'project.manage';
 
 export class ForbiddenError extends Error {
   statusCode = 403;
@@ -24,8 +26,10 @@ const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
     'campaign.launch',
     'integration.manage',
     'settings.manage',
+    'company.manage',
+    'project.manage',
   ],
-  MANAGER: ['content.approve', 'content.edit', 'campaign.launch'],
+  MANAGER: ['content.approve', 'content.edit', 'campaign.launch', 'project.manage'],
   REVIEWER: ['content.approve'],
   EDITOR: ['content.edit'],
   VIEWER: [],

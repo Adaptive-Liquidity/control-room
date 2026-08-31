@@ -1,6 +1,7 @@
 // src/services/campaign.service.ts
 import type { AudienceTier, CampaignStatus, CampaignTheme, Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
+import { scopedPrisma } from '@/lib/scope/scoped-prisma';
 
 export class CampaignServiceError extends Error {
   statusCode: number;
@@ -12,10 +13,16 @@ export class CampaignServiceError extends Error {
 }
 
 export class CampaignService {
-  async getAll(options: { status?: CampaignStatus | string; page?: number; limit?: number } = {}) {
-    const { status, page = 1, limit = 20 } = options;
-    const where: { status?: CampaignStatus } = {};
+  async getAll(options: {
+    status?: CampaignStatus | string;
+    page?: number;
+    limit?: number;
+    projectId: string;
+  }) {
+    const { status, page = 1, limit = 20, projectId } = options;
+    const where: { status?: CampaignStatus; projectId?: string } = {};
     if (status) where.status = status as CampaignStatus;
+    where.projectId = projectId;
 
     const [items, total] = await Promise.all([
       prisma.campaign.findMany({
@@ -40,8 +47,8 @@ export class CampaignService {
     return { items: enriched, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
-  async getById(id: string) {
-    return prisma.campaign.findUnique({
+  async getById(id: string, projectId: string) {
+    return scopedPrisma(projectId, prisma).campaign.findUnique({
       where: { id },
       include: {
         creator: { select: { id: true, name: true, email: true } },
@@ -65,6 +72,7 @@ export class CampaignService {
     dailyContentLimit?: number;
     dailyPublishLimit?: number;
     creatorId: string;
+    projectId: string;
   }) {
     const campaign = await prisma.campaign.create({
       data: {
@@ -80,6 +88,7 @@ export class CampaignService {
         dailyContentLimit: data.dailyContentLimit,
         dailyPublishLimit: data.dailyPublishLimit,
         creatorId: data.creatorId,
+        projectId: data.projectId,
       },
       include: {
         creator: true,
@@ -90,6 +99,7 @@ export class CampaignService {
     await prisma.activityLog.create({
       data: {
         userId: data.creatorId,
+        projectId: data.projectId,
         type: 'CAMPAIGN_LAUNCHED',
         description: `Launched campaign: "${data.name}"`,
         metadata: { campaignId: campaign.id },
@@ -99,17 +109,19 @@ export class CampaignService {
     return campaign;
   }
 
-  async setPaused(id: string, paused: boolean, userId: string) {
-    const campaign = await prisma.campaign.update({
+  async setPaused(id: string, paused: boolean, userId: string, projectId: string) {
+    const db = scopedPrisma(projectId, prisma);
+    const campaign = await db.campaign.update({
       where: { id },
       data: {
         paused,
         status: paused ? 'PAUSED' : 'ACTIVE',
       },
     });
-    await prisma.activityLog.create({
+    await db.activityLog.create({
       data: {
         userId,
+        projectId,
         type: 'CAMPAIGN_PAUSED',
         description: paused
           ? `Paused campaign: "${campaign.name}"`
@@ -120,14 +132,16 @@ export class CampaignService {
     return campaign;
   }
 
-  async setAutoGenDisabled(id: string, disabled: boolean, userId: string) {
-    const campaign = await prisma.campaign.update({
+  async setAutoGenDisabled(id: string, disabled: boolean, userId: string, projectId: string) {
+    const db = scopedPrisma(projectId, prisma);
+    const campaign = await db.campaign.update({
       where: { id },
       data: { autoGenDisabled: disabled },
     });
-    await prisma.activityLog.create({
+    await db.activityLog.create({
       data: {
         userId,
+        projectId,
         type: 'CAMPAIGN_PAUSED',
         description: disabled
           ? `Disabled auto-gen for campaign: "${campaign.name}"`
@@ -138,8 +152,9 @@ export class CampaignService {
     return campaign;
   }
 
-  async emergencyStop(id: string, userId: string) {
-    const campaign = await prisma.campaign.update({
+  async emergencyStop(id: string, userId: string, projectId: string) {
+    const db = scopedPrisma(projectId, prisma);
+    const campaign = await db.campaign.update({
       where: { id },
       data: {
         emergencyStopped: true,
@@ -148,9 +163,10 @@ export class CampaignService {
         status: 'PAUSED',
       },
     });
-    await prisma.activityLog.create({
+    await db.activityLog.create({
       data: {
         userId,
+        projectId,
         type: 'CAMPAIGN_STOPPED',
         description: `Emergency stop: "${campaign.name}"`,
         metadata: { campaignId: id },
@@ -159,9 +175,9 @@ export class CampaignService {
     return campaign;
   }
 
-  async updateAttribution(campaignId: string) {
+  async updateAttribution(campaignId: string, projectId: string) {
     const contents = await prisma.content.findMany({
-      where: { campaignId },
+      where: { campaignId, projectId },
     });
 
     const totals = contents.reduce(
@@ -175,7 +191,7 @@ export class CampaignService {
     );
 
     return prisma.campaign.update({
-      where: { id: campaignId },
+      where: { id: campaignId, projectId },
       data: {
         totalImpressions: totals.impressions,
         totalEngagements: totals.engagements,

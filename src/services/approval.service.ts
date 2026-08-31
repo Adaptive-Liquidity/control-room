@@ -1,7 +1,7 @@
 import type { Session } from 'next-auth';
 import type { Channel, ContentType, Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
-import { requirePermission } from '@/lib/rbac';
+import { ForbiddenError, hasPermission } from '@/lib/rbac';
 import {
   ConflictError,
   ValidationServiceError,
@@ -23,6 +23,7 @@ export type ApprovalDecision = 'APPROVED' | 'REJECTED' | 'REVISION_REQUESTED';
 export class ApprovalService {
   async decide(opts: {
     session: Session;
+    projectId: string;
     contentId: string;
     expectedRevisionId: string;
     decision: ApprovalDecision;
@@ -34,7 +35,21 @@ export class ApprovalService {
       type?: ContentType;
     };
   }) {
-    requirePermission(opts.session, 'content.approve');
+    if (opts.session.user.role === 'SERVICE') {
+      throw new ForbiddenError('SERVICE accounts cannot approve');
+    }
+    const membership = await prisma.projectMember.findUnique({
+      where: {
+        projectId_userId: {
+          projectId: opts.projectId,
+          userId: opts.session.user.id,
+        },
+      },
+      select: { role: true },
+    });
+    if (!membership || !hasPermission(membership.role, 'content.approve')) {
+      throw new ForbiddenError('Missing permission: content.approve');
+    }
     const reviewerId = opts.session.user.id;
 
     if (opts.decision === 'REJECTED' && !opts.comment?.trim()) {
@@ -53,6 +68,9 @@ export class ApprovalService {
       });
 
       if (!existing) {
+        throw new ValidationServiceError('Content not found');
+      }
+      if (existing.projectId !== opts.projectId) {
         throw new ValidationServiceError('Content not found');
       }
 
@@ -77,6 +95,7 @@ export class ApprovalService {
             type: opts.edits.type ?? revision.type,
           },
           reviewerId,
+          opts.projectId,
           tx
         );
         if (guardianResult.result === 'BLOCK') {
@@ -124,6 +143,7 @@ export class ApprovalService {
       await tx.activityLog.create({
         data: {
           userId: reviewerId,
+          projectId: opts.projectId,
           type: opts.decision === 'APPROVED' ? 'CONTENT_APPROVED' : 'CONTENT_REJECTED',
           description: `${opts.decision}: "${updated.title}"${
             opts.comment ? ` — ${opts.comment}` : ''
@@ -187,6 +207,7 @@ export class ApprovalService {
 
     const realtimePayload = {
       contentId: content.id,
+      projectId: opts.projectId,
       revisionId,
       status: content.status,
     };

@@ -11,6 +11,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
+import { ProjectSwitcher } from "@/components/layout/project-switcher";
+
 const pageTitles: Record<string, { title: string; subtitle: string }> = {
   "/dashboard": { title: "Dashboard", subtitle: "Operations overview" },
   "/agents": { title: "Agents", subtitle: "Creator, publisher, analyzer, guardian" },
@@ -105,6 +107,7 @@ export function Header() {
         )}
       </div>
       <div className="flex items-center gap-2">
+        <ProjectSwitcher />
         <div className="hidden items-center gap-2 md:flex">
           <HeaderActions pathname={pathname} />
         </div>

@@ -11,6 +11,14 @@ import {
 
 export const runtime = 'nodejs';
 
+class PublishTransitionError extends Error {
+  status = 422;
+  constructor(message: string) {
+    super(message);
+    this.name = 'PublishTransitionError';
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const rawBody = await req.text();
@@ -49,6 +57,31 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (revision.guardianResult === 'BLOCK') {
+      return NextResponse.json(
+        { error: 'Cannot publish content blocked by Guardian' },
+        { status: 422 }
+      );
+    }
+
+    if (payload.status === 'SUCCESS') {
+      const publishable = revision.content.status === 'APPROVED' || revision.content.status === 'SCHEDULED';
+      if (!publishable) {
+        return NextResponse.json(
+          {
+            error: `Content must be APPROVED or SCHEDULED before publish receipt (got ${revision.content.status})`,
+          },
+          { status: 422 }
+        );
+      }
+      if (revision.content.currentRevisionId !== payload.revisionId) {
+        return NextResponse.json(
+          { error: 'Publish receipt revision is not the current revision' },
+          { status: 422 }
+        );
+      }
+    }
+
     const result = await prisma.$transaction(async (tx) => {
       const receipt = await tx.publishReceipt.create({
         data: {
@@ -69,17 +102,26 @@ export async function POST(req: NextRequest) {
       });
 
       if (payload.status === 'SUCCESS') {
-        // Sole authority to transition to PUBLISHED.
-        await tx.content.update({
-          where: { id: payload.contentId },
+        const published = await tx.content.updateMany({
+          where: {
+            id: payload.contentId,
+            currentRevisionId: payload.revisionId,
+            status: { in: ['APPROVED', 'SCHEDULED'] },
+          },
           data: {
             status: 'PUBLISHED',
             publishedAt: payload.publishedAt ? new Date(payload.publishedAt) : new Date(),
           },
         });
+        if (published.count !== 1) {
+          throw new PublishTransitionError(
+            'Publish receipt revision is not the current revision'
+          );
+        }
 
         await tx.activityLog.create({
           data: {
+            projectId: revision.content.projectId,
             type: 'CONTENT_PUBLISHED',
             description: `Published via n8n receipt: "${revision.title}" on ${payload.channel}`,
             metadata: {
@@ -99,12 +141,14 @@ export async function POST(req: NextRequest) {
     if (payload.status === 'SUCCESS') {
       await emitContentPublished({
         contentId: payload.contentId,
+        projectId: revision.content.projectId,
         revisionId: payload.revisionId,
         status: 'PUBLISHED',
       });
     } else {
       await emitContentUpdated({
         contentId: payload.contentId,
+        projectId: revision.content.projectId,
         revisionId: payload.revisionId,
         status: revision.content.status,
       });
@@ -123,6 +167,9 @@ export async function POST(req: NextRequest) {
     }
     if (error instanceof SyntaxError) {
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+    }
+    if (error instanceof PublishTransitionError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
     }
     console.error('POST /api/integrations/n8n/publish-receipt error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

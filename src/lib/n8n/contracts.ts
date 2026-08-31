@@ -22,6 +22,7 @@ export const n8nDraftIngressSchema = z.object({
   resumeUrl: z.string().url(),
   resumeExpiresAt: z.string().datetime().optional(),
   campaignId: z.string().optional(),
+  projectId: z.string().optional(),
   content: z.object({
     title: z.string().min(1).max(200),
     body: z.string().min(1).max(50000),
@@ -33,9 +34,17 @@ export const n8nDraftIngressSchema = z.object({
 
 export type N8nDraftIngress = z.infer<typeof n8nDraftIngressSchema>;
 
+export const contentRiskTierSchema = z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']);
+
 export const n8nPolicyCheckSchema = z.object({
   schemaVersion: z.string().min(1),
   campaignId: z.string().optional(),
+  projectId: z.string().optional(),
+  include: z.array(z.enum(['contextPack', 'reference'])).optional(),
+  knownContextHash: z.string().optional(),
+  knownComposedHash: z.string().optional(),
+  /** Optional risk hint so HQ can resolve requireHuman against campaign risk knobs. */
+  contentRiskTier: contentRiskTierSchema.optional(),
 });
 
 export type N8nPolicyCheck = z.infer<typeof n8nPolicyCheckSchema>;
@@ -108,6 +117,10 @@ export const n8nAgentRunIngressSchema = z.object({
   startedAt: z.string().datetime().optional(),
   finishedAt: z.string().datetime().optional(),
   metadata: z.record(z.unknown()).optional(),
+  projectId: z.string().optional(),
+  campaignId: z.string().optional(),
+  departmentId: z.string().optional(),
+  contextPackHash: z.string().optional(),
 });
 
 export type N8nAgentRunIngress = z.infer<typeof n8nAgentRunIngressSchema>;
@@ -117,6 +130,7 @@ export const n8nMetricSnapshotSchema = z.object({
   eventId: z.string().min(1).max(200),
   contentId: z.string().optional(),
   campaignId: z.string().optional(),
+  projectId: z.string().optional(),
   channel: channelSchema.optional(),
   observedAt: z.string().datetime(),
   impressions: z.number().int().nonnegative().optional(),
@@ -145,6 +159,7 @@ export const n8nAttributionIngressSchema = z.object({
   kind: attributionKindSchema,
   contentId: z.string().optional(),
   campaignId: z.string().optional(),
+  projectId: z.string().optional(),
   occurredAt: z.string().datetime(),
   value: z.number().optional(),
   currency: z.string().max(16).optional(),

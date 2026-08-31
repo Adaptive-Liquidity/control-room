@@ -15,6 +15,10 @@ export const generateRequestSchema = z.object({
   ]),
   prompt: z.string().max(2000).optional(),
   titleHint: z.string().max(200).optional(),
+  projectId: z.string().optional(),
+  campaignId: z.string().optional(),
+  contextPack: z.unknown().optional(),
+  composedHash: z.string().optional(),
 });
 
 export type GenerateRequest = z.infer<typeof generateRequestSchema>;

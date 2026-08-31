@@ -76,12 +76,16 @@ describe('failure: Pusher down → UI still works', () => {
     await expect(
       emitContentApproved({
         contentId: 'c1',
+        projectId: 'project-1',
         revisionId: 'r1',
         status: 'APPROVED',
       })
     ).resolves.toBeUndefined();
     await expect(
-      triggerControlRoom('content.updated', { contentId: 'c1' })
+      triggerControlRoom('content.updated', {
+        contentId: 'c1',
+        projectId: 'project-1',
+      })
     ).resolves.toBeUndefined();
   });
 

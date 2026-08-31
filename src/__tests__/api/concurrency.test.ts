@@ -12,6 +12,7 @@ jest.mock('@/lib/prisma', () => ({
     agentRun: { findUnique: jest.fn() },
     metricSnapshot: { findUnique: jest.fn() },
     attributionEvent: { findUnique: jest.fn() },
+    projectMember: { findUnique: jest.fn() },
     approval: { create: jest.fn() },
     activityLog: { create: jest.fn() },
     outboxEvent: { create: jest.fn() },
@@ -48,6 +49,7 @@ const mockedPrisma = prisma as unknown as {
   agentRun: { findUnique: jest.Mock };
   metricSnapshot: { findUnique: jest.Mock };
   attributionEvent: { findUnique: jest.Mock };
+  projectMember: { findUnique: jest.Mock };
 };
 
 describe('concurrency: dual approve', () => {
@@ -59,6 +61,7 @@ describe('concurrency: dual approve', () => {
         content: {
           findUnique: jest.fn().mockImplementation(async () => ({
             id: 'c1',
+            projectId: 'project-1',
             title: 'T',
             origin: 'MANUAL',
             currentRevisionId: approved ? 'r-new' : 'r1',
@@ -92,9 +95,12 @@ describe('concurrency: dual approve', () => {
       return fn(tx);
     });
 
+    mockedPrisma.projectMember.findUnique.mockResolvedValue({ role: 'REVIEWER' });
+
     const s = session('REVIEWER') as never;
     const first = await approvalService.decide({
       session: s,
+      projectId: 'project-1',
       contentId: 'c1',
       expectedRevisionId: 'r1',
       decision: 'APPROVED',
@@ -104,6 +110,7 @@ describe('concurrency: dual approve', () => {
     await expect(
       approvalService.decide({
         session: session('MANAGER', 'reviewer-2') as never,
+        projectId: 'project-1',
         contentId: 'c1',
         expectedRevisionId: 'r1',
         decision: 'APPROVED',
@@ -125,6 +132,7 @@ describe('concurrency: duplicate draft', () => {
   it('parallel-looking duplicate externalDraftId returns same content', async () => {
     const existing = {
       id: 'c-only',
+      projectId: 'proj_aeon',
       currentRevisionId: 'r-only',
       status: 'PENDING_REVIEW',
       guardianScore: 80,
@@ -139,6 +147,7 @@ describe('concurrency: duplicate draft', () => {
       externalDraftId: 'ext-shared',
       workflowId: 'wf',
       executionId: 'ex1',
+      projectId: 'proj_aeon',
       resumeUrl: 'https://n8n.example/wait/1',
       content: {
         title: 'Dup',

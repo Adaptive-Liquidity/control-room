@@ -83,9 +83,36 @@ export function deriveResult(
 }
 
 export class GuardianService {
-  async checkContent(content: string, title: string): Promise<GuardianCheckResult> {
+  async checkContent(
+    content: string,
+    title: string,
+    scope?: { companyId?: string | null; projectId?: string | null }
+  ): Promise<GuardianCheckResult> {
+    const companyId =
+      scope?.companyId ??
+      (scope?.projectId
+        ? (
+            await prisma.project.findUnique({
+              where: { id: scope.projectId },
+              select: { companyId: true },
+            })
+          )?.companyId
+        : null);
     const rules = await prisma.guardianRule.findMany({
-      where: { isActive: true },
+      where: {
+        isActive: true,
+        AND: [
+          {
+            OR: [
+              { companyId: null, projectId: null },
+              ...(companyId
+                ? [{ companyId, projectId: null as string | null }]
+                : []),
+              ...(scope?.projectId ? [{ projectId: scope.projectId }] : []),
+            ],
+          },
+        ],
+      },
     });
 
     const flags: GuardianFlag[] = [];
@@ -222,7 +249,7 @@ export class GuardianService {
     const score = Math.max(0, Math.min(100, 100 - weightSum));
     const result = deriveResult(findings);
 
-    await this.logCheck(content.length, score, flags.length, result);
+    await this.logCheck(content.length, score, flags.length, result, scope?.projectId);
 
     return {
       score,
@@ -292,10 +319,12 @@ export class GuardianService {
     contentLength: number,
     score: number,
     flags: number,
-    result: string
+    result: string,
+    projectId?: string | null
   ) {
     await prisma.activityLog.create({
       data: {
+        projectId,
         type: 'SETTINGS_CHANGED',
         description: `Guardian check: score=${score}, result=${result}, flags=${flags}, length=${contentLength}`,
         metadata: { score, flags, contentLength, result, policyVersion: POLICY_VERSION },

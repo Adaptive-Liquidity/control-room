@@ -3,10 +3,43 @@ import type { AttributionKind, Channel, Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 
 export class MetricsService {
+  private async resolveProjectId(refs: {
+    projectId?: string;
+    campaignId?: string;
+    contentId?: string;
+  }): Promise<string> {
+    const [campaign, content] = await Promise.all([
+      refs.campaignId
+        ? prisma.campaign.findUnique({
+            where: { id: refs.campaignId },
+            select: { projectId: true },
+          })
+        : null,
+      refs.contentId
+        ? prisma.content.findUnique({
+            where: { id: refs.contentId },
+            select: { projectId: true },
+          })
+        : null,
+    ]);
+    if (refs.campaignId && !campaign) throw new Error('Campaign not found');
+    if (refs.contentId && !content) throw new Error('Content not found');
+
+    const projectIds = [refs.projectId, campaign?.projectId, content?.projectId].filter(
+      (value): value is string => Boolean(value)
+    );
+    if (!projectIds.length) throw new Error('projectId required');
+    if (projectIds.some((value) => value !== projectIds[0])) {
+      throw new Error('Metric references must belong to the same project');
+    }
+    return projectIds[0];
+  }
+
   async ingestSnapshot(payload: {
     eventId: string;
     contentId?: string;
     campaignId?: string;
+    projectId?: string;
     channel?: Channel;
     observedAt: string;
     impressions?: number;
@@ -17,10 +50,14 @@ export class MetricsService {
     reach?: number;
     metadata?: Record<string, unknown>;
   }) {
+    const projectId = await this.resolveProjectId(payload);
     const existing = await prisma.metricSnapshot.findUnique({
       where: { eventId: payload.eventId },
     });
     if (existing) {
+      if (existing.projectId !== projectId) {
+        throw new Error('Metric eventId belongs to a different project');
+      }
       return { snapshot: existing, idempotent: true };
     }
 
@@ -30,6 +67,7 @@ export class MetricsService {
           eventId: payload.eventId,
           contentId: payload.contentId,
           campaignId: payload.campaignId,
+          projectId,
           channel: payload.channel,
           observedAt: new Date(payload.observedAt),
           impressions: payload.impressions ?? 0,
@@ -68,6 +106,7 @@ export class MetricsService {
 
       await tx.activityLog.create({
         data: {
+          projectId,
           type: 'METRICS_INGESTED',
           description: `Metric snapshot ingested for ${payload.contentId ?? payload.campaignId ?? 'unknown'}`,
           metadata: { eventId: payload.eventId, snapshotId: created.id },
@@ -85,16 +124,21 @@ export class MetricsService {
     kind: AttributionKind;
     contentId?: string;
     campaignId?: string;
+    projectId?: string;
     occurredAt: string;
     value?: number;
     currency?: string;
     sessionId?: string;
     metadata?: Record<string, unknown>;
   }) {
+    const projectId = await this.resolveProjectId(payload);
     const existing = await prisma.attributionEvent.findUnique({
       where: { eventId: payload.eventId },
     });
     if (existing) {
+      if (existing.projectId !== projectId) {
+        throw new Error('Attribution eventId belongs to a different project');
+      }
       return { event: existing, idempotent: true };
     }
 
@@ -105,6 +149,7 @@ export class MetricsService {
           kind: payload.kind,
           contentId: payload.contentId,
           campaignId: payload.campaignId,
+          projectId,
           occurredAt: new Date(payload.occurredAt),
           value: payload.value,
           currency: payload.currency,
@@ -145,16 +190,15 @@ export class MetricsService {
     return { event, idempotent: false };
   }
 
-  async getAnalytics(opts: { days?: number } = {}) {
-    const days = opts.days ?? 30;
+  async getAnalytics(projectId: string, days = 30) {
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
     const [snapshots, contents, approvals] = await Promise.all([
       prisma.metricSnapshot.findMany({
-        where: { observedAt: { gte: since } },
+        where: { projectId, observedAt: { gte: since } },
       }),
       prisma.content.findMany({
-        where: { createdAt: { gte: since } },
+        where: { projectId, createdAt: { gte: since } },
         select: {
           id: true,
           title: true,
@@ -167,7 +211,7 @@ export class MetricsService {
       }),
       prisma.approval.groupBy({
         by: ['status'],
-        where: { createdAt: { gte: since } },
+        where: { content: { projectId }, createdAt: { gte: since } },
         _count: true,
       }),
     ]);
@@ -254,12 +298,11 @@ export class MetricsService {
     };
   }
 
-  async getAttribution(opts: { days?: number } = {}) {
-    const days = opts.days ?? 30;
+  async getAttribution(projectId: string, days = 30) {
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
     const events = await prisma.attributionEvent.findMany({
-      where: { occurredAt: { gte: since } },
+      where: { projectId, occurredAt: { gte: since } },
       orderBy: { occurredAt: 'desc' },
       take: 5000,
     });
@@ -294,7 +337,7 @@ export class MetricsService {
     });
     const contents = contentIds.length
       ? await prisma.content.findMany({
-          where: { id: { in: contentIds } },
+          where: { projectId, id: { in: contentIds } },
           select: { id: true, title: true, impressions: true, signups: true, integrations: true, treasuryImpact: true },
         })
       : [];
@@ -336,7 +379,10 @@ export class MetricsService {
       topRows.length === 0
         ? (
             await prisma.content.findMany({
-              where: { OR: [{ signups: { gt: 0 } }, { impressions: { gt: 0 } }] },
+              where: {
+                projectId,
+                OR: [{ signups: { gt: 0 } }, { impressions: { gt: 0 } }],
+              },
               orderBy: { signups: 'desc' },
               take: 20,
               select: {

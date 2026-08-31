@@ -1,4 +1,4 @@
-import type { Prisma } from '@prisma/client';
+import type { ContentRiskTier, Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 
 export class CampaignPolicyRejectedError extends Error {
@@ -15,7 +15,9 @@ export type CampaignPolicyReason =
   | 'emergency_stopped'
   | 'auto_gen_disabled'
   | 'paused'
-  | 'daily_content_limit';
+  | 'daily_content_limit'
+  | 'no_context_pack'
+  | 'project_archived';
 
 export interface CampaignPolicyDecision {
   allowed: boolean;
@@ -34,15 +36,69 @@ export const UNSCOPED_POLICY_DECISION: CampaignPolicyDecision = {
   requireHuman: true,
 };
 
+const RISK_RANK: Record<ContentRiskTier, number> = {
+  LOW: 1,
+  MEDIUM: 2,
+  HIGH: 3,
+  CRITICAL: 4,
+};
+
 export function startOfUtcDay(now: Date = new Date()): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 }
 
-function resolveRequireHuman(approvalPolicy: unknown): boolean {
+function asPolicy(approvalPolicy: unknown): {
+  requireHuman?: boolean;
+  autoApproveBelow?: ContentRiskTier;
+  riskCeiling?: ContentRiskTier;
+} {
   if (approvalPolicy && typeof approvalPolicy === 'object' && !Array.isArray(approvalPolicy)) {
-    const value = (approvalPolicy as Record<string, unknown>).requireHuman;
-    if (typeof value === 'boolean') return value;
+    return approvalPolicy as {
+      requireHuman?: boolean;
+      autoApproveBelow?: ContentRiskTier;
+      riskCeiling?: ContentRiskTier;
+    };
   }
+  return {};
+}
+
+export function resolveRequireHuman(
+  approvalPolicy: unknown,
+  contentRisk?: ContentRiskTier | null
+): boolean {
+  const policy = asPolicy(approvalPolicy);
+
+  const rawAuto = policy.autoApproveBelow;
+  const rawCeiling = policy.riskCeiling;
+  const autoApproveBelow =
+    rawAuto && rawAuto in RISK_RANK ? (rawAuto as ContentRiskTier) : undefined;
+  const riskCeiling =
+    rawCeiling && rawCeiling in RISK_RANK ? (rawCeiling as ContentRiskTier) : undefined;
+
+  // Fail closed: unrecognized tier strings cannot disable human review.
+  if (
+    (rawAuto != null && !autoApproveBelow) ||
+    (rawCeiling != null && !riskCeiling)
+  ) {
+    return true;
+  }
+
+  // Ceiling always wins: content above the campaign risk ceiling needs a human.
+  if (contentRisk && riskCeiling && RISK_RANK[contentRisk] > RISK_RANK[riskCeiling]) {
+    return true;
+  }
+
+  if (typeof policy.requireHuman === 'boolean' && policy.requireHuman === true) {
+    return true;
+  }
+
+  if (contentRisk && autoApproveBelow) {
+    if (RISK_RANK[contentRisk] <= RISK_RANK[autoApproveBelow]) {
+      return false;
+    }
+  }
+
+  if (typeof policy.requireHuman === 'boolean') return policy.requireHuman;
   return true;
 }
 
@@ -52,7 +108,8 @@ function resolveRequireHuman(approvalPolicy: unknown): boolean {
  */
 export async function evaluateCampaignPolicy(
   campaignId: string,
-  tx?: Prisma.TransactionClient
+  tx?: Prisma.TransactionClient,
+  opts?: { contentRisk?: ContentRiskTier | null }
 ): Promise<CampaignPolicyDecision | null> {
   const db = tx ?? prisma;
 
@@ -65,6 +122,13 @@ export async function evaluateCampaignPolicy(
       paused: true,
       autoGenDisabled: true,
       emergencyStopped: true,
+      project: {
+        select: {
+          status: true,
+          activeContextVersionId: true,
+          company: { select: { activeContextVersionId: true } },
+        },
+      },
     },
   });
 
@@ -89,9 +153,18 @@ export async function evaluateCampaignPolicy(
       campaign.dailyPublishLimit != null
         ? Math.max(0, campaign.dailyPublishLimit - publishedToday)
         : null,
-    requireHuman: resolveRequireHuman(campaign.approvalPolicy),
+    requireHuman: resolveRequireHuman(campaign.approvalPolicy, opts?.contentRisk),
   };
 
+  if (campaign.project.status === 'ARCHIVED') {
+    return { allowed: false, reason: 'project_archived', ...shared };
+  }
+  if (
+    !campaign.project.activeContextVersionId ||
+    !campaign.project.company.activeContextVersionId
+  ) {
+    return { allowed: false, reason: 'no_context_pack', ...shared };
+  }
   if (campaign.emergencyStopped) {
     return { allowed: false, reason: 'emergency_stopped', ...shared };
   }

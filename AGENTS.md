@@ -38,6 +38,18 @@ Dev users created by `ensure-dev-users` (local/cloud only):
 
 `prisma generate` after schema pulls is fine (does not apply SQL).
 
+### Agent HQ (company / project)
+After `prisma migrate deploy`, the default tenant is `cmpy_adaptive_liquidity` / `proj_aeon`
+with published context packs. Users need a `ProjectMember` row or they stay on `/setup`.
+
+- First-run / extra project: `/setup` (`company.manage` / ADMIN only).
+- Switch project: header switcher (`POST /api/projects/active`).
+- Edit voice / don't-say / project brief: Settings → Brand Voice (`GET/PUT /api/context`).
+- n8n policy-check and drafts must send `projectId` (default `proj_aeon`) so composed packs
+  reach Creator. See [docs/n8n-bridge.md](docs/n8n-bridge.md).
+- `npm run db:bootstrap-admin` and `npm run db:ensure-dev-users` attach memberships to
+  `proj_aeon` (or the first project if the seed id is missing).
+
 ### Auth / signup
 - Public signup is gated by `ALLOW_PUBLIC_SIGNUP`. When unset/false, only ADMIN (`settings.manage`)
   can create users (invite-style). Public signup, when enabled, always creates `VIEWER`.

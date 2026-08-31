@@ -1,0 +1,1 @@
+{"agentName":"creator","costUsd":0.01,"eventId":"evt-agent-run-v1-fixture","executionId":"exec-agent-v1","latencyMs":1200,"modelAlias":"gpt-test","promptVersion":"v1","schemaVersion":"1","status":"SUCCESS","tokensIn":100,"tokensOut":50,"workflowId":"wf-agent"}

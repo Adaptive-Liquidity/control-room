@@ -65,6 +65,7 @@ export class AssetService {
     originalFilename: string;
     mimeType: string;
     sha256?: string;
+    projectId: string;
   }) {
     if (!isStorageConfigured()) {
       throw new AssetServiceError('Object storage is not configured', 503);
@@ -78,6 +79,9 @@ export class AssetService {
 
     const existing = await prisma.asset.findUnique({ where: { storageKey: opts.storageKey } });
     if (existing) {
+      if (existing.projectId !== opts.projectId) {
+        throw new AssetServiceError('Asset belongs to a different project', 403);
+      }
       return { asset: existing, idempotent: true };
     }
 
@@ -103,6 +107,7 @@ export class AssetService {
         sha256: opts.sha256 ?? null,
         originalFilename: opts.originalFilename,
         uploadedById: opts.userId,
+        projectId: opts.projectId,
       },
       include: {
         uploadedBy: { select: { id: true, name: true, email: true } },
@@ -112,6 +117,7 @@ export class AssetService {
     await prisma.activityLog.create({
       data: {
         userId: opts.userId,
+        projectId: opts.projectId,
         type: 'ASSET_UPLOADED',
         description: `Uploaded asset: ${opts.originalFilename}`,
         metadata: { assetId: asset.id, storageKey: opts.storageKey, mimeType: opts.mimeType },
@@ -121,12 +127,17 @@ export class AssetService {
     return { asset, idempotent: false };
   }
 
-  async list(opts: { page?: number; limit?: number; mimePrefix?: string } = {}) {
+  async list(opts: {
+    projectId: string;
+    page?: number;
+    limit?: number;
+    mimePrefix?: string;
+  }) {
     const page = opts.page ?? 1;
     const limit = Math.min(opts.limit ?? 50, 100);
     const where = opts.mimePrefix
-      ? { mimeType: { startsWith: opts.mimePrefix } }
-      : {};
+      ? { projectId: opts.projectId, mimeType: { startsWith: opts.mimePrefix } }
+      : { projectId: opts.projectId };
 
     const [items, total] = await Promise.all([
       prisma.asset.findMany({
@@ -148,13 +159,24 @@ export class AssetService {
     position?: number;
     altText?: string;
     userId: string;
+    projectId: string;
   }) {
     const [revision, asset] = await Promise.all([
-      prisma.contentRevision.findUnique({ where: { id: opts.contentRevisionId } }),
+      prisma.contentRevision.findUnique({
+        where: { id: opts.contentRevisionId },
+        include: { content: { select: { projectId: true } } },
+      }),
       prisma.asset.findUnique({ where: { id: opts.assetId } }),
     ]);
     if (!revision) throw new AssetServiceError('Revision not found', 404);
     if (!asset) throw new AssetServiceError('Asset not found', 404);
+    if (
+      revision.content.projectId !== opts.projectId ||
+      asset.projectId !== opts.projectId ||
+      asset.projectId !== revision.content.projectId
+    ) {
+      throw new AssetServiceError('Asset and revision must belong to the active project', 403);
+    }
 
     const link = await prisma.contentAsset.upsert({
       where: {

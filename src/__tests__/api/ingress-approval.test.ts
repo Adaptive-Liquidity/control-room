@@ -36,6 +36,13 @@ jest.mock('@/lib/prisma', () => ({
     user: {
       findFirst: jest.fn(),
     },
+    projectMember: {
+      findFirst: jest.fn(),
+      findUnique: jest.fn(),
+    },
+    campaign: {
+      findUnique: jest.fn(),
+    },
     activityLog: {
       create: jest.fn(),
     },
@@ -64,8 +71,30 @@ jest.mock('next-auth', () => ({
   getServerSession: jest.fn(),
 }));
 
+jest.mock('@/lib/project/context', () => {
+  const actual = jest.requireActual('@/lib/project/context');
+  const { getServerSession } = jest.requireMock('next-auth') as {
+    getServerSession: jest.Mock;
+  };
+  return {
+    ...actual,
+    resolveProjectContext: jest.fn().mockImplementation(async () => {
+      const session = await getServerSession();
+      return {
+        projectId: 'project-1',
+        slug: 'project-1',
+        name: 'Project 1',
+        role: session?.user?.role ?? 'REVIEWER',
+        company: { id: 'company-1', slug: 'company-1', name: 'Company 1' },
+        projects: [],
+      };
+    }),
+  };
+});
+
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
+import { resolveProjectContext } from '@/lib/project/context';
 import { POST as draftPost } from '@/app/api/integrations/n8n/drafts/route';
 import { POST as receiptPost } from '@/app/api/integrations/n8n/publish-receipt/route';
 import { POST as approvePost } from '@/app/api/queue/[id]/approve/route';
@@ -94,6 +123,7 @@ const draftBody = {
   externalDraftId: 'ext-draft-1',
   workflowId: 'wf-1',
   executionId: 'exec-1',
+  projectId: 'proj_aeon',
   resumeUrl: 'https://n8n.example/webhook/wait/abc',
   content: {
     title: 'Test draft',
@@ -124,6 +154,7 @@ describe('n8n draft ingress', () => {
   it('returns idempotent existing draft by externalDraftId', async () => {
     mockedPrisma.content.findUnique.mockResolvedValue({
       id: 'c1',
+      projectId: 'proj_aeon',
       currentRevisionId: 'r1',
       status: 'PENDING_REVIEW',
       guardianScore: 88,
@@ -142,6 +173,23 @@ describe('n8n draft ingress', () => {
     });
     expect(mockedPrisma.$transaction).not.toHaveBeenCalled();
   });
+
+  it('returns 409 when externalDraftId already exists on another project', async () => {
+    mockedPrisma.content.findUnique.mockResolvedValue({
+      id: 'c-other',
+      projectId: 'proj_other',
+      currentRevisionId: 'r-other',
+      status: 'PENDING_REVIEW',
+      guardianScore: 88,
+      author: { id: 'u1', email: 's@t', name: 'svc', role: 'SERVICE' },
+      revisions: [{ id: 'r-other' }],
+    });
+
+    const req = makeJsonRequest('http://localhost/api/integrations/n8n/drafts', draftBody);
+    const res = await draftPost(req);
+    expect(res.status).toBe(409);
+    expect(mockedPrisma.$transaction).not.toHaveBeenCalled();
+  });
 });
 
 describe('queue approve / reject / revision', () => {
@@ -152,6 +200,25 @@ describe('queue approve / reject / revision', () => {
 
   it('VIEWER approve returns 403', async () => {
     (getServerSession as jest.Mock).mockResolvedValue(session('VIEWER'));
+    const req = new NextRequest('http://localhost/api/queue/c1/approve', {
+      method: 'POST',
+      body: JSON.stringify({ revisionId: 'r1' }),
+      headers: { 'content-type': 'application/json' },
+    });
+    const res = await approvePost(req, { params: { id: 'c1' } });
+    expect(res.status).toBe(403);
+  });
+
+  it('SERVICE cannot approve even with a REVIEWER project membership', async () => {
+    (getServerSession as jest.Mock).mockResolvedValue(session('SERVICE', 'svc-1'));
+    (resolveProjectContext as jest.Mock).mockResolvedValueOnce({
+      projectId: 'project-1',
+      slug: 'project-1',
+      name: 'Project 1',
+      role: 'REVIEWER',
+      company: { id: 'company-1', slug: 'company-1', name: 'Company 1' },
+      projects: [],
+    });
     const req = new NextRequest('http://localhost/api/queue/c1/approve', {
       method: 'POST',
       body: JSON.stringify({ revisionId: 'r1' }),
@@ -290,16 +357,17 @@ describe('publish receipt', () => {
       contentId: 'c1',
       contentHash: 'abc123',
       title: 'T',
-      content: { status: 'APPROVED' },
+      guardianResult: 'ALLOW',
+      content: { status: 'APPROVED', projectId: 'proj_aeon', currentRevisionId: 'r1' },
     });
 
-    const contentUpdate = jest.fn().mockResolvedValue({ id: 'c1', status: 'PUBLISHED' });
+    const contentUpdateMany = jest.fn().mockResolvedValue({ count: 1 });
     mockedPrisma.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) =>
       fn({
         publishReceipt: {
           create: jest.fn().mockResolvedValue({ id: 'pr1', status: 'SUCCESS' }),
         },
-        content: { update: contentUpdate },
+        content: { updateMany: contentUpdateMany },
         activityLog: { create: jest.fn().mockResolvedValue({}) },
       })
     );
@@ -310,15 +378,86 @@ describe('publish receipt', () => {
     );
     const res = await receiptPost(req);
     expect(res.status).toBe(201);
-    expect(contentUpdate).toHaveBeenCalledWith(
+    expect(contentUpdateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'c1' },
+        where: expect.objectContaining({
+          id: 'c1',
+          currentRevisionId: 'r1',
+        }),
         data: expect.objectContaining({ status: 'PUBLISHED' }),
       })
     );
     expect(emitContentPublished).toHaveBeenCalledWith(
       expect.objectContaining({ contentId: 'c1', status: 'PUBLISHED' })
     );
+  });
+
+  it('rejects SUCCESS receipt when revision is not current', async () => {
+    mockedPrisma.publishReceipt.findUnique.mockResolvedValue(null);
+    mockedPrisma.contentRevision.findUnique.mockResolvedValue({
+      id: 'r1',
+      contentId: 'c1',
+      contentHash: 'abc123',
+      title: 'T',
+      guardianResult: 'ALLOW',
+      content: { status: 'APPROVED', projectId: 'proj_aeon', currentRevisionId: 'r-newer' },
+    });
+
+    const req = makeJsonRequest(
+      'http://localhost/api/integrations/n8n/publish-receipt',
+      { ...receiptBody, eventId: 'evt-stale-rev' }
+    );
+    const res = await receiptPost(req);
+    expect(res.status).toBe(422);
+    expect(mockedPrisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('rolls back SUCCESS when the in-transaction revision update matches no rows', async () => {
+    mockedPrisma.publishReceipt.findUnique.mockResolvedValue(null);
+    mockedPrisma.contentRevision.findUnique.mockResolvedValue({
+      id: 'r1',
+      contentId: 'c1',
+      contentHash: 'abc123',
+      title: 'T',
+      guardianResult: 'ALLOW',
+      content: { status: 'APPROVED', projectId: 'proj_aeon', currentRevisionId: 'r1' },
+    });
+    mockedPrisma.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) =>
+      fn({
+        publishReceipt: {
+          create: jest.fn().mockResolvedValue({ id: 'pr-race' }),
+        },
+        content: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+        activityLog: { create: jest.fn() },
+      })
+    );
+
+    const req = makeJsonRequest(
+      'http://localhost/api/integrations/n8n/publish-receipt',
+      { ...receiptBody, eventId: 'evt-race' }
+    );
+    const res = await receiptPost(req);
+    expect(res.status).toBe(422);
+  });
+
+  it('rejects SUCCESS receipt when content is still PENDING_REVIEW', async () => {
+    mockedPrisma.publishReceipt.findUnique.mockResolvedValue(null);
+    mockedPrisma.contentRevision.findUnique.mockResolvedValue({
+      id: 'r1',
+      contentId: 'c1',
+      contentHash: 'abc123',
+      title: 'T',
+      guardianResult: 'ALLOW',
+      content: { status: 'PENDING_REVIEW', projectId: 'proj_aeon', currentRevisionId: 'r1' },
+    });
+
+    const req = makeJsonRequest(
+      'http://localhost/api/integrations/n8n/publish-receipt',
+      { ...receiptBody, eventId: 'evt-pending' }
+    );
+    const res = await receiptPost(req);
+    expect(res.status).toBe(422);
+    expect(mockedPrisma.$transaction).not.toHaveBeenCalled();
   });
 
   it('FAILED receipt does not update content to PUBLISHED', async () => {
@@ -328,7 +467,8 @@ describe('publish receipt', () => {
       contentId: 'c1',
       contentHash: 'abc123',
       title: 'T',
-      content: { status: 'APPROVED' },
+      guardianResult: 'ALLOW',
+      content: { status: 'APPROVED', projectId: 'proj_aeon', currentRevisionId: 'r1' },
     });
 
     const contentUpdate = jest.fn();

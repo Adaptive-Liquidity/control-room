@@ -9,6 +9,8 @@ npm run db:seed-guardian
 # Staging/prod first admin (then invite a SERVICE user in-app):
 BOOTSTRAP_ADMIN_EMAIL=ops@example.com BOOTSTRAP_ADMIN_PASSWORD='...' npm run db:bootstrap-admin
 # Local E2E only: npm run db:ensure-dev-users
+# After migrate, default company/project is cmpy_adaptive_liquidity / proj_aeon.
+# bootstrap-admin and ensure-dev-users attach users as ProjectMembers.
 ```
 
 Create at least one active user with role `SERVICE` — draft ingestion attributes content to that account. On staging/prod, invite `SERVICE` after `db:bootstrap-admin`. Locally, `ensure-dev-users` creates `service@aeon.test`.
@@ -59,13 +61,18 @@ Read-only pre-spend gate. Same ingress HMAC. Does not create content or burn `ev
 ```json
 {
   "schemaVersion": "1",
-  "campaignId": "optional_campaign_cuid"
+  "projectId": "proj_aeon",
+  "campaignId": "optional_campaign_cuid",
+  "include": ["contextPack"],
+  "knownComposedHash": "sha256:optional_previous_hash"
 }
 ```
 
-Omit `campaignId` (or leave unset) for an unscoped allow response — useful for smoke tests. When `campaignId` is set, Control Room evaluates campaign `emergencyStopped` / `autoGenDisabled` / pause / `dailyContentLimit`.
+Omit both `projectId` and `campaignId` for an unscoped allow response — useful for smoke tests only. **Production workflows must send `projectId`** (default seed `proj_aeon`) so Control Room can compose and return the company+project context pack.
 
-### Response (`200`)
+When `campaignId` is set, Control Room evaluates campaign `emergencyStopped` / `autoGenDisabled` / pause / `dailyContentLimit`, then composes packs for that campaign's project.
+
+### Response (`200`) — scoped
 
 ```json
 {
@@ -73,15 +80,22 @@ Omit `campaignId` (or leave unset) for an unscoped allow response — useful for
   "reason": null,
   "remainingContentToday": 12,
   "remainingPublishToday": 5,
-  "requireHuman": true
+  "requireHuman": true,
+  "project": { "id": "proj_aeon", "slug": "aeon", "companyId": "cmpy_adaptive_liquidity" },
+  "contextPack": { "schemaVersion": "1", "promptCore": {} },
+  "composedHash": "sha256:…",
+  "companyContextHash": "sha256:…",
+  "projectContextHash": "sha256:…",
+  "contextUnchanged": false
 }
 ```
 
 `remainingContentToday` / `remainingPublishToday` are `null` when the campaign has no limit, or for the unscoped response.
 
-- `allowed: false` → n8n must stop before LLM spend (fail closed).
+- `allowed: false` → n8n must stop before LLM spend (fail closed). `reason: no_context_pack` means company/project packs are unpublished.
+- Send `knownComposedHash` on later checks to skip re-downloading an unchanged pack (`contextUnchanged: true`, no `contextPack` body).
 - `404` → unknown campaign.
-- Draft ingress **also** enforces the same campaign rules independently (409) so a skipped policy-check cannot bypass kill switches.
+- Draft ingress **also** enforces the same campaign rules independently (409) so a skipped policy-check cannot bypass kill switches. Drafts without `campaignId` **require `projectId`**.
 
 ## 1. Draft ingress — `POST /api/integrations/n8n/drafts`
 
@@ -99,6 +113,7 @@ Creates `Content(origin=N8N)` + first `ContentRevision` (Guardian V2 evaluated) 
   "resumeUrl": "https://n8n.example/webhook-waiting/...",
   "resumeExpiresAt": "2026-08-10T12:00:00.000Z",
   "campaignId": "optional_campaign_cuid",
+  "projectId": "proj_aeon",
   "content": {
     "title": "Thread title",
     "body": "Draft body...",

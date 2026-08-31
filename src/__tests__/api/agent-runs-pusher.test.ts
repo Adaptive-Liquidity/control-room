@@ -48,7 +48,12 @@ describe('agent-runs pusher wire', () => {
 
   it('emits emitAgentRunUpdated after non-idempotent ingest', async () => {
     (agentRunService.ingest as jest.Mock).mockResolvedValue({
-      run: { id: 'run-1', agentId: 'agent-1', status: 'RUNNING' },
+      run: {
+        id: 'run-1',
+        agentId: 'agent-1',
+        status: 'RUNNING',
+        projectId: 'project-1',
+      },
       idempotent: false,
     });
 
@@ -59,6 +64,7 @@ describe('agent-runs pusher wire', () => {
       executionId: 'ex',
       status: 'RUNNING',
       agentId: 'agent-1',
+      projectId: 'project-1',
     };
     const res = await POST(
       makeJsonRequest('http://localhost/api/integrations/n8n/agent-runs', body)
@@ -68,6 +74,7 @@ describe('agent-runs pusher wire', () => {
       agentRunId: 'run-1',
       agentId: 'agent-1',
       status: 'RUNNING',
+      projectId: 'project-1',
     });
   });
 
