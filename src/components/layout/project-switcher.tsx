@@ -62,7 +62,12 @@ export function ProjectSwitcher() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className="h-8 max-w-[220px] gap-1 truncate text-xs">
+        <Button
+          variant="outline"
+          size="sm"
+          aria-label="Switch project"
+          className="h-8 max-w-[220px] gap-1 truncate text-xs"
+        >
           <span className="truncate">{active?.name ?? 'Select project'}</span>
           <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-60" />
         </Button>

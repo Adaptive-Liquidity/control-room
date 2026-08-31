@@ -22,8 +22,15 @@ describe('RBAC', () => {
         'campaign.launch',
         'integration.manage',
         'settings.manage',
+        'company.manage',
+        'project.manage',
       ])
     );
+  });
+
+  it('MANAGER can manage projects but not company packs', () => {
+    expect(hasPermission('MANAGER', 'project.manage')).toBe(true);
+    expect(hasPermission('MANAGER', 'company.manage')).toBe(false);
   });
 
   it('REVIEWER can approve but not edit', () => {

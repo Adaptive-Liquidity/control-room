@@ -3,9 +3,11 @@ import { getServerSession } from 'next-auth';
 import { z } from 'zod';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { ForbiddenError, requirePermission } from '@/lib/rbac';
+import { ForbiddenError, hasPermission, requirePermission } from '@/lib/rbac';
 import { contextPackService } from '@/services/context-pack.service';
 import type { ContextPack } from '@/lib/context/compose-packs';
+import { isUniqueConstraintError } from '@/lib/prisma-errors';
+import { evaluateSetupGate } from '@/lib/setup/setup-gate';
 
 const setupSchema = z.object({
   company: z.object({
@@ -31,6 +33,50 @@ const setupSchema = z.object({
     description: z.string().max(2000).optional(),
   }),
 });
+
+export async function GET() {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const company = await prisma.company.findFirst({
+      select: { id: true, name: true, slug: true, setupCompletedAt: true },
+    });
+    const memberships = await prisma.projectMember.findMany({
+      where: { userId: session.user.id },
+      include: {
+        project: {
+          select: {
+            id: true,
+            activeContextVersionId: true,
+            company: { select: { id: true, activeContextVersionId: true } },
+          },
+        },
+      },
+    });
+    const gate = evaluateSetupGate({
+      memberships: memberships.map((row) => ({
+        projectId: row.projectId,
+        companyId: row.project.company.id,
+        hasPublishedCompanyPack: Boolean(row.project.company.activeContextVersionId),
+        hasPublishedProjectPack: Boolean(row.project.activeContextVersionId),
+      })),
+    });
+
+    return NextResponse.json({
+      hasCompany: Boolean(company),
+      company: company ? { id: company.id, name: company.name, slug: company.slug } : null,
+      canManage: hasPermission(session.user.role, 'company.manage'),
+      ready: gate.ready,
+      missing: gate.ready ? [] : gate.missing,
+    });
+  } catch (error) {
+    console.error('GET /api/setup error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -175,6 +221,12 @@ export async function POST(req: NextRequest) {
     }
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: 'Validation error', details: error.errors }, { status: 400 });
+    }
+    if (isUniqueConstraintError(error)) {
+      return NextResponse.json(
+        { error: 'Company or project slug already exists' },
+        { status: 409 }
+      );
     }
     console.error('POST /api/setup error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

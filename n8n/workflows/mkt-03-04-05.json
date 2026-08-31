@@ -29,6 +29,12 @@
               "name": "controlRoomBaseUrl",
               "type": "string",
               "value": "https://hq.adaptiveliquidity.com"
+            },
+            {
+              "id": "projectId",
+              "name": "projectId",
+              "type": "string",
+              "value": "proj_aeon"
             }
           ]
         },
@@ -76,7 +82,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const c = $input.first().json;\nconst timestamp = Math.floor(Date.now() / 1000).toString();\nconst campaignId = (c.campaignId === undefined || c.campaignId === '') ? null : c.campaignId;\nconst content = {\n  title: c.title,\n  body: c.body,\n  type: c.type,\n  channel: c.channel\n};\nconst bodyObj = {\n  schemaVersion: '1',\n  eventId: c.eventId,\n  externalDraftId: c.externalDraftId,\n  workflowId: $workflow.id,\n  executionId: $execution.id,\n  resumeUrl: $execution.resumeUrl,\n  content: content,\n  metadata: { agent: 'creator', promptVersion: 'mkt-03-v1' }\n};\nif (campaignId) bodyObj.campaignId = campaignId;\n// Serialize ONCE. rawBody is the exact bytes signed and transmitted.\nconst rawBody = JSON.stringify(bodyObj);\nreturn [{ json: {\n  eventId: c.eventId,\n  externalDraftId: c.externalDraftId,\n  timestamp: timestamp,\n  rawBody: rawBody,\n  hmacMessage: timestamp + '.' + rawBody,\n  content: content,\n  campaignId: campaignId\n} }];"
+        "jsCode": "const c = $input.first().json;\nconst timestamp = Math.floor(Date.now() / 1000).toString();\nconst campaignId = (c.campaignId === undefined || c.campaignId === '') ? null : c.campaignId;\nconst content = {\n  title: c.title,\n  body: c.body,\n  type: c.type,\n  channel: c.channel\n};\nconst bodyObj = {\n  schemaVersion: '1',\n  eventId: c.eventId,\n  externalDraftId: c.externalDraftId,\n  workflowId: $workflow.id,\n  executionId: $execution.id,\n  resumeUrl: $execution.resumeUrl,\n  content: content,\n  metadata: { agent: 'creator', promptVersion: 'mkt-03-v1' }\n};\nif (campaignId) bodyObj.campaignId = campaignId;\nconst projectId = $('Config Base URL').item.json.projectId || 'proj_aeon';\nif (projectId) bodyObj.projectId = projectId;\n// Serialize ONCE. rawBody is the exact bytes signed and transmitted.\nconst rawBody = JSON.stringify(bodyObj);\nreturn [{ json: {\n  eventId: c.eventId,\n  externalDraftId: c.externalDraftId,\n  timestamp: timestamp,\n  rawBody: rawBody,\n  hmacMessage: timestamp + '.' + rawBody,\n  content: content,\n  campaignId: campaignId\n} }];"
       },
       "id": "5fa1c2b5-a0f3-43ab-9e41-f6aa761364ed",
       "name": "MKT-03 ▪ Normalize + Canonical Raw Body",
@@ -657,7 +663,7 @@
     },
     {
       "parameters": {
-        "content": "## ⚙ CONFIGURATION\n- **CONTROL_ROOM_BASE_URL**: enter it in the **Config Base URL** node (Value field). No trailing slash.\n  It is reused for both `/api/integrations/n8n/drafts` and `/api/integrations/n8n/publish-receipt`.\n- **Staging is the default.** No real social publishing happens until you attach production credentials on the per-channel publisher nodes.",
+        "content": "## ⚙ CONFIGURATION\n- **CONTROL_ROOM_BASE_URL**: enter it in the **Config Base URL** node (Value field). No trailing slash.\n  It is reused for drafts, policy-check, agent-runs, and publish-receipt.\n- **projectId**: default `proj_aeon` (migration seed). Required on policy-check + drafts so Control Room can inject the composed context pack.\n- **Staging is the default.** No real social publishing happens until you attach production credentials on the per-channel publisher nodes.",
         "height": 220,
         "width": 460,
         "color": 4
@@ -782,7 +788,7 @@
         960
       ],
       "parameters": {
-        "jsCode": "const c = $input.first().json;\nconst eventId = 'ar-running-' + $execution.id + '-' + Date.now();\nconst bodyObj = {\n  schemaVersion: '1',\n  eventId,\n  workflowId: $workflow.id,\n  executionId: $execution.id,\n  status: 'RUNNING',\n  agentName: 'creator',\n  modelAlias: c.modelAlias || 'gpt-4o',\n  promptVersion: c.promptVersion || 'mkt-03-v1',\n  startedAt: c.creatorStartedAt || new Date().toISOString(),\n  metadata: { stage: 'creator' }\n};\nconst timestamp = Math.floor(Date.now() / 1000).toString();\nconst rawBody = JSON.stringify(bodyObj);\nreturn [{ json: Object.assign({}, c, {\n  __agentRun: {\n    timestamp,\n    rawBody,\n    hmacMessage: timestamp + '.' + rawBody\n  }\n}) }];"
+        "jsCode": "const c = $input.first().json;\nconst eventId = 'ar-running-' + $execution.id + '-' + Date.now();\nconst projectId = $('Config Base URL').item.json.projectId || 'proj_aeon';\nconst bodyObj = {\n  schemaVersion: '1',\n  eventId,\n  workflowId: $workflow.id,\n  executionId: $execution.id,\n  status: 'RUNNING',\n  agentName: 'creator',\n  modelAlias: c.modelAlias || 'gpt-4o',\n  promptVersion: c.promptVersion || 'mkt-03-v1',\n  startedAt: c.creatorStartedAt || new Date().toISOString(),\n  projectId,\n  metadata: { stage: 'creator' }\n};\nconst timestamp = Math.floor(Date.now() / 1000).toString();\nconst rawBody = JSON.stringify(bodyObj);\nreturn [{ json: Object.assign({}, c, {\n  __agentRun: {\n    timestamp,\n    rawBody,\n    hmacMessage: timestamp + '.' + rawBody\n  }\n}) }];"
       }
     },
     {
@@ -867,7 +873,7 @@
         960
       ],
       "parameters": {
-        "jsCode": "const eventId = 'ar-wait-' + $execution.id + '-' + Date.now();\nconst started = $('MKT-03 ▪ Parse Creator JSON').item.json.creatorStartedAt;\nconst latencyMs = started ? Math.max(0, Date.now() - new Date(started).getTime()) : undefined;\nconst bodyObj = {\n  schemaVersion: '1',\n  eventId,\n  workflowId: $workflow.id,\n  executionId: $execution.id,\n  status: 'WAITING_APPROVAL',\n  agentName: 'creator',\n  modelAlias: $('MKT-03 ▪ Parse Creator JSON').item.json.modelAlias || 'gpt-4o',\n  promptVersion: $('MKT-03 ▪ Parse Creator JSON').item.json.promptVersion || 'mkt-03-v1',\n  latencyMs,\n  startedAt: started,\n  metadata: { stage: 'awaiting_human' }\n};\nconst timestamp = Math.floor(Date.now() / 1000).toString();\nconst rawBody = JSON.stringify(bodyObj);\nreturn [{ json: {\n  draftHandoff: $input.first().json,\n  __agentRun: { timestamp, rawBody, hmacMessage: timestamp + '.' + rawBody }\n} }];"
+        "jsCode": "const eventId = 'ar-wait-' + $execution.id + '-' + Date.now();\nconst started = $('MKT-03 ▪ Parse Creator JSON').item.json.creatorStartedAt;\nconst latencyMs = started ? Math.max(0, Date.now() - new Date(started).getTime()) : undefined;\nconst projectId = $('Config Base URL').item.json.projectId || 'proj_aeon';\nconst bodyObj = {\n  schemaVersion: '1',\n  eventId,\n  workflowId: $workflow.id,\n  executionId: $execution.id,\n  status: 'WAITING_APPROVAL',\n  agentName: 'creator',\n  projectId,\n  modelAlias: $('MKT-03 ▪ Parse Creator JSON').item.json.modelAlias || 'gpt-4o',\n  promptVersion: $('MKT-03 ▪ Parse Creator JSON').item.json.promptVersion || 'mkt-03-v1',\n  latencyMs,\n  startedAt: started,\n  metadata: { stage: 'awaiting_human' }\n};\nconst timestamp = Math.floor(Date.now() / 1000).toString();\nconst rawBody = JSON.stringify(bodyObj);\nreturn [{ json: {\n  draftHandoff: $input.first().json,\n  __agentRun: { timestamp, rawBody, hmacMessage: timestamp + '.' + rawBody }\n} }];"
       }
     },
     {
@@ -952,7 +958,7 @@
         288
       ],
       "parameters": {
-        "jsCode": "const a = $('Validate Approved Revision').item.json;\nconst receipt = $('MKT-05 ▪ Normalize + Canonical Receipt Body').item.json;\nlet runStatus = 'FAILED';\ntry {\n  const parsed = JSON.parse(receipt.rawBody);\n  runStatus = parsed.status === 'SUCCESS' ? 'SUCCESS' : 'FAILED';\n} catch (e) {\n  runStatus = 'FAILED';\n}\nconst eventId = 'ar-pub-' + $execution.id + '-' + Date.now();\nconst bodyObj = {\n  schemaVersion: '1',\n  eventId,\n  workflowId: $workflow.id,\n  executionId: $execution.id,\n  status: runStatus,\n  agentName: 'publisher',\n  modelAlias: 'staging-mock',\n  promptVersion: 'mkt-05-v1',\n  finishedAt: new Date().toISOString(),\n  metadata: { stage: 'publish_receipt', channel: a.channel, contentId: a.contentId, receiptStatus: runStatus }\n};\nconst timestamp = Math.floor(Date.now() / 1000).toString();\nconst rawBody = JSON.stringify(bodyObj);\nreturn [{ json: Object.assign({}, $input.first().json, {\n  __agentRun: { timestamp, rawBody, hmacMessage: timestamp + '.' + rawBody }\n}) }];"
+        "jsCode": "const a = $('Validate Approved Revision').item.json;\nconst receipt = $('MKT-05 ▪ Normalize + Canonical Receipt Body').item.json;\nlet runStatus = 'FAILED';\ntry {\n  const parsed = JSON.parse(receipt.rawBody);\n  runStatus = parsed.status === 'SUCCESS' ? 'SUCCESS' : 'FAILED';\n} catch (e) {\n  runStatus = 'FAILED';\n}\nconst eventId = 'ar-pub-' + $execution.id + '-' + Date.now();\nconst projectId = $('Config Base URL').item.json.projectId || 'proj_aeon';\nconst bodyObj = {\n  schemaVersion: '1',\n  eventId,\n  workflowId: $workflow.id,\n  executionId: $execution.id,\n  status: runStatus,\n  agentName: 'publisher',\n  projectId,\n  modelAlias: 'staging-mock',\n  promptVersion: 'mkt-05-v1',\n  finishedAt: new Date().toISOString(),\n  metadata: { stage: 'publish_receipt', channel: a.channel, contentId: a.contentId, receiptStatus: runStatus }\n};\nconst timestamp = Math.floor(Date.now() / 1000).toString();\nconst rawBody = JSON.stringify(bodyObj);\nreturn [{ json: Object.assign({}, $input.first().json, {\n  __agentRun: { timestamp, rawBody, hmacMessage: timestamp + '.' + rawBody }\n}) }];"
       }
     },
     {
@@ -1024,7 +1030,7 @@
         960
       ],
       "parameters": {
-        "jsCode": "const campaignId = null; // optional: set a campaign CUID to enforce pause/stop/limits\nconst bodyObj = { schemaVersion: '1', ...(campaignId ? { campaignId } : {}) };\nconst timestamp = Math.floor(Date.now() / 1000).toString();\nconst rawBody = JSON.stringify(bodyObj);\nreturn [{ json: {\n  __policy: { timestamp, rawBody, hmacMessage: timestamp + '.' + rawBody, campaignId }\n} }];"
+        "jsCode": "const projectId = $('Config Base URL').item.json.projectId || 'proj_aeon';\nconst campaignId = null; // optional: set a campaign CUID to enforce pause/stop/limits\nconst bodyObj = { schemaVersion: '1', projectId, include: ['contextPack'], ...(campaignId ? { campaignId } : {}) };\nconst timestamp = Math.floor(Date.now() / 1000).toString();\nconst rawBody = JSON.stringify(bodyObj);\nreturn [{ json: {\n  __policy: { timestamp, rawBody, hmacMessage: timestamp + '.' + rawBody, campaignId, projectId }\n} }];"
       }
     },
     {

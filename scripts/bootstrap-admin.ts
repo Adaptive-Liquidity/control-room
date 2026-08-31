@@ -71,6 +71,33 @@ async function main() {
     },
   });
 
+  const project =
+    (await prisma.project.findUnique({
+      where: { id: 'proj_aeon' },
+      select: { id: true },
+    })) ??
+    (await prisma.project.findFirst({
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    }));
+
+  if (project) {
+    await prisma.projectMember.upsert({
+      where: { projectId_userId: { projectId: project.id, userId: user.id } },
+      update: { role: 'ADMIN' },
+      create: { projectId: project.id, userId: user.id, role: 'ADMIN' },
+    });
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { lastActiveProjectId: project.id },
+    });
+    console.log(`membership: ${user.email} → ${project.id}`);
+  } else {
+    console.log(
+      'No project found — run prisma migrate deploy (seeds proj_aeon) or complete /setup as this ADMIN.'
+    );
+  }
+
   console.log(
     existing
       ? `Updated ADMIN user ${user.email} (id=${user.id}) — role/password/name refreshed.`

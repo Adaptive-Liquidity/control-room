@@ -96,6 +96,7 @@ These require live infrastructure and are **not** automated in this repo alone:
 8. Optional: configure Pusher + Firebase Admin for realtime + assets (app works without them).
 9. Execute staging E2E with `E2E_FULL_LIFECYCLE=1` against real Wait + publish receipt (do not mark gate 20 done until this passes).
 10. Walk gates 1–24 with a second reviewer; then cut DNS / traffic.
+11. Re-import n8n workflows so Config includes `projectId` (default `proj_aeon`). Confirm policy-check returns a `contextPack` / `composedHash` and Settings → Brand Voice can publish a new pack version.
 
 ### Ops evidence log (fill as you go)
 
@@ -106,3 +107,4 @@ These require live infrastructure and are **not** automated in this repo alone:
 | `E2E_FULL_LIFECYCLE=1` | Pending | Needs Wait resume + frequent outbox drain |
 | Outbox sub-daily cron | Pending | External scheduler recommended (Hobby daily is insufficient) |
 | MKT workflow published | Done (2026-08-18) | `Mr2NsTTTVKvuGZKa` + `2lYDNN28W8gMrGtC`; mock publisher still in use |
+| Agent HQ packs + projectId | Ready to verify | Re-import workflows so Config has `projectId=proj_aeon`; Settings → Brand Voice publishes a pack; policy-check returns `composedHash` |

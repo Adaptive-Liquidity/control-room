@@ -32,14 +32,14 @@ export default function SetupPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [hasCompany, setHasCompany] = useState(false);
+  const [canManage, setCanManage] = useState(true);
 
   useEffect(() => {
-    fetch('/api/projects')
+    fetch('/api/setup')
       .then((r) => r.json())
       .then((data) => {
-        if (data.projects?.length) {
-          setHasCompany(true);
-        }
+        if (data.hasCompany) setHasCompany(true);
+        if (typeof data.canManage === 'boolean') setCanManage(data.canManage);
       })
       .catch(() => undefined);
   }, []);
@@ -95,6 +95,11 @@ export default function SetupPage() {
           ? 'Add a project under your company. Brand voice stays on the company.'
           : 'Company brand first, then the product/project you will create content for.'}
       </p>
+      {!canManage && (
+        <p className="mt-4 text-sm text-destructive">
+          Only an ADMIN can complete HQ setup. Ask an admin to invite you to a project.
+        </p>
+      )}
       <form onSubmit={onSubmit} className="mt-8 space-y-4">
         {!hasCompany && (
           <>
@@ -161,7 +166,7 @@ export default function SetupPage() {
           onChange={(e) => setDescription(e.target.value)}
         />
         {error && <p className="text-sm text-destructive">{error}</p>}
-        <Button type="submit" disabled={busy || !session?.user}>
+        <Button type="submit" disabled={busy || !session?.user || !canManage}>
           {busy ? 'Saving…' : 'Enter HQ'}
         </Button>
       </form>

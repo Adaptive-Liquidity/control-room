@@ -82,6 +82,231 @@ interface HealthPayload {
   storage: { configured: boolean; detail?: string };
 }
 
+interface ContextPayload {
+  company: {
+    name: string;
+    pack: {
+      promptCore?: {
+        identity?: { oneLiner?: string };
+        voice?: { tone?: string; dont?: string[] };
+      };
+    } | null;
+    version?: number;
+  };
+  project: {
+    name: string;
+    pack: {
+      promptCore?: {
+        identity?: { oneLiner?: string; description?: string };
+      };
+    } | null;
+    version?: number;
+  };
+}
+
+function BrandVoicePanel({
+  canCompany,
+  canProject,
+}: {
+  canCompany: boolean;
+  canProject: boolean;
+}) {
+  const qc = useQueryClient();
+  const { data, isLoading, isError } = useQuery<ContextPayload>({
+    queryKey: ["context-packs"],
+    queryFn: async () => {
+      const res = await fetch("/api/context");
+      if (!res.ok) throw new Error("Failed to load context packs");
+      return res.json();
+    },
+  });
+
+  const [companyOneLiner, setCompanyOneLiner] = useState("");
+  const [voiceTone, setVoiceTone] = useState("");
+  const [dontSay, setDontSay] = useState("");
+  const [projectOneLiner, setProjectOneLiner] = useState("");
+  const [description, setDescription] = useState("");
+
+  useEffect(() => {
+    if (!data) return;
+    const voice = data.company.pack?.promptCore?.voice;
+    const identity = data.company.pack?.promptCore?.identity;
+    const projectIdentity = data.project.pack?.promptCore?.identity;
+    setCompanyOneLiner(typeof identity?.oneLiner === "string" ? identity.oneLiner : "");
+    setVoiceTone(typeof voice?.tone === "string" ? voice.tone : "");
+    setDontSay(Array.isArray(voice?.dont) ? voice.dont.join(", ") : "");
+    setProjectOneLiner(
+      typeof projectIdentity?.oneLiner === "string" ? projectIdentity.oneLiner : ""
+    );
+    setDescription(
+      typeof projectIdentity?.description === "string" ? projectIdentity.description : ""
+    );
+  }, [data]);
+
+  const save = useMutation({
+    mutationFn: async (body: Record<string, unknown>) => {
+      const res = await fetch("/api/context", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to publish context pack");
+      return json;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["context-packs"] });
+    },
+  });
+
+  if (isLoading) return <p className="text-sm text-muted-foreground">Loading brand voice…</p>;
+  if (isError || !data) {
+    return <p className="text-sm text-destructive">Failed to load context packs</p>;
+  }
+
+  return (
+    <div className="max-w-lg space-y-8">
+      <div className="space-y-4">
+        <div>
+          <h3 className="text-sm font-medium">Company pack</h3>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Voice and don&apos;t-say list used by every project. Publishing creates a new
+            version {data.company.version ? `(current v${data.company.version})` : ""}.
+          </p>
+        </div>
+        <div>
+          <label htmlFor="company-oneliner" className="mb-1.5 block text-xs font-medium text-muted-foreground">
+            Company one-liner
+          </label>
+          <input
+            id="company-oneliner"
+            className={inputClass}
+            disabled={!canCompany || save.isPending}
+            value={companyOneLiner}
+            onChange={(e) => setCompanyOneLiner(e.target.value)}
+          />
+        </div>
+        <div>
+          <label htmlFor="voice-tone" className="mb-1.5 block text-xs font-medium text-muted-foreground">
+            Voice tone
+          </label>
+          <input
+            id="voice-tone"
+            className={inputClass}
+            disabled={!canCompany || save.isPending}
+            value={voiceTone}
+            onChange={(e) => setVoiceTone(e.target.value)}
+          />
+        </div>
+        <div>
+          <label htmlFor="dont-say" className="mb-1.5 block text-xs font-medium text-muted-foreground">
+            Don&apos;t-say terms (comma-separated)
+          </label>
+          <input
+            id="dont-say"
+            className={inputClass}
+            disabled={!canCompany || save.isPending}
+            value={dontSay}
+            onChange={(e) => setDontSay(e.target.value)}
+          />
+        </div>
+        <div className="flex items-center gap-3">
+          <Button
+            size="sm"
+            disabled={!canCompany || save.isPending}
+            onClick={() =>
+              save.mutate({
+                scope: "company",
+                oneLiner: companyOneLiner,
+                voiceTone,
+                dontSay: dontSay
+                  .split(",")
+                  .map((s) => s.trim())
+                  .filter(Boolean),
+              })
+            }
+          >
+            {save.isPending ? "Publishing…" : "Publish company pack"}
+          </Button>
+          {!canCompany && (
+            <span className="text-xs text-muted-foreground">Requires ADMIN (company.manage)</span>
+          )}
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <div>
+          <h3 className="text-sm font-medium">Project pack — {data.project.name}</h3>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Product-specific brief merged with the company pack for n8n.{" "}
+            {data.project.version ? `Current v${data.project.version}.` : ""}
+          </p>
+        </div>
+        <div>
+          <label htmlFor="project-oneliner" className="mb-1.5 block text-xs font-medium text-muted-foreground">
+            Project one-liner
+          </label>
+          <input
+            id="project-oneliner"
+            className={inputClass}
+            disabled={!canProject || save.isPending}
+            value={projectOneLiner}
+            onChange={(e) => setProjectOneLiner(e.target.value)}
+          />
+        </div>
+        <div>
+          <label htmlFor="project-desc" className="mb-1.5 block text-xs font-medium text-muted-foreground">
+            Description
+          </label>
+          <textarea
+            id="project-desc"
+            className={`${inputClass} h-24 py-2`}
+            disabled={!canProject || save.isPending}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </div>
+        <div className="flex items-center gap-3">
+          <Button
+            size="sm"
+            disabled={!canProject || save.isPending}
+            onClick={() =>
+              save.mutate({
+                scope: "project",
+                oneLiner: projectOneLiner,
+                description,
+              })
+            }
+          >
+            {save.isPending ? "Publishing…" : "Publish project pack"}
+          </Button>
+          {!canProject && (
+            <span className="text-xs text-muted-foreground">Requires ADMIN or MANAGER</span>
+          )}
+        </div>
+      </div>
+
+      {save.isError && (
+        <p className="text-xs text-destructive">
+          {save.error instanceof Error ? save.error.message : "Publish failed"}
+        </p>
+      )}
+      {save.isSuccess && !save.isError && (
+        <p className="text-xs text-muted-foreground">Published new context version</p>
+      )}
+
+      <p className="text-xs text-muted-foreground">
+        Guardian keyword rules stay separately seeded via{" "}
+        <code className="font-mono">npm run db:seed-guardian</code>. Review outcomes on{" "}
+        <a href="/audit" className="text-primary hover:underline">
+          Audit
+        </a>
+        .
+      </p>
+    </div>
+  );
+}
+
 function HealthCard({
   title,
   ok,
@@ -110,6 +335,7 @@ export default function SettingsPage() {
   const qc = useQueryClient();
   const { data: session } = useSession();
   const canManage = session?.user?.role === "ADMIN";
+  const canProject = session?.user?.role === "ADMIN" || session?.user?.role === "MANAGER";
 
   const [form, setForm] = useState<SettingsForm | null>(null);
   const [saved, setSaved] = useState(false);
@@ -358,27 +584,7 @@ export default function SettingsPage() {
             ))}
 
           {activeTab === "brand" && (
-            <div className="max-w-lg space-y-3">
-              <p className="text-sm text-muted-foreground">
-                Brand voice rules (forbidden words, maturity bands, regulatory phrases) are
-                Guardian rules stored in the database. They are provisioned by{" "}
-                <code className="font-mono text-xs">npm run db:seed-guardian</code> and are not
-                editable from Control Room — editing them here would bypass the policy version
-                that every revision is checked against.
-              </p>
-              <p className="text-sm text-muted-foreground">
-                Every Guardian evaluation is recorded with its policy version. Review outcomes on
-                the{" "}
-                <a href="/audit" className="text-primary hover:underline">
-                  Audit
-                </a>{" "}
-                surface, or run a pre-flight check in{" "}
-                <a href="/studio" className="text-primary hover:underline">
-                  Studio
-                </a>
-                .
-              </p>
-            </div>
+            <BrandVoicePanel canCompany={canManage} canProject={canProject} />
           )}
 
           {activeTab === "guardian" &&

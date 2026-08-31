@@ -67,18 +67,21 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    let contextPack: ContextPack | undefined;
-    let composedHash: string | undefined;
-    if (project?.activeContextVersion && project.company.activeContextVersion) {
-      const composed = composeContextPack({
-        company: project.company.activeContextVersion.pack as ContextPack,
-        project: project.activeContextVersion.pack as ContextPack,
-        companyVersionId: project.company.activeContextVersion.id,
-        projectVersionId: project.activeContextVersion.id,
-      });
-      contextPack = composed.pack;
-      composedHash = composed.composedHash;
+    if (!project?.activeContextVersion || !project.company.activeContextVersion) {
+      return NextResponse.json(
+        { error: 'Published company and project context packs are required' },
+        { status: 409 }
+      );
     }
+
+    const composed = composeContextPack({
+      company: project.company.activeContextVersion.pack as ContextPack,
+      project: project.activeContextVersion.pack as ContextPack,
+      companyVersionId: project.company.activeContextVersion.id,
+      projectVersionId: project.activeContextVersion.id,
+    });
+    const contextPack = composed.pack;
+    const composedHash = composed.composedHash;
 
     const result = await callN8nGenerate({
       ...validated,

@@ -35,6 +35,12 @@
               "name": "controlRoomBaseUrl",
               "type": "string",
               "value": "https://hq.adaptiveliquidity.com"
+            },
+            {
+              "id": "projectId",
+              "name": "projectId",
+              "type": "string",
+              "value": "proj_aeon"
             }
           ]
         },
@@ -51,7 +57,7 @@
         400
       ],
       "parameters": {
-        "jsCode": "const base = $('Config Base URL').item.json.controlRoomBaseUrl;\nconst observedAt = new Date().toISOString();\nconst metricEventId = 'metric-demo-' + $execution.id + '-' + Date.now();\nconst attrEventId = 'attr-demo-' + $execution.id + '-' + Date.now();\nconst metricBody = {\n  schemaVersion: '1',\n  eventId: metricEventId,\n  channel: 'TWITTER',\n  observedAt,\n  impressions: 100,\n  engagements: 12,\n  clicks: 4,\n  reach: 80,\n  metadata: { source: 'mkt-06-stub', note: 'Replace with real platform metrics' }\n};\nconst attrBody = {\n  schemaVersion: '1',\n  eventId: attrEventId,\n  kind: 'CLICK',\n  occurredAt: observedAt,\n  value: 1,\n  metadata: { source: 'mkt-06-stub' }\n};\nconst ts = Math.floor(Date.now() / 1000).toString();\nconst metricRaw = JSON.stringify(metricBody);\nconst attrRaw = JSON.stringify(attrBody);\nreturn [{ json: {\n  controlRoomBaseUrl: base,\n  metric: { timestamp: ts, rawBody: metricRaw, hmacMessage: ts + '.' + metricRaw },\n  attr: { timestamp: ts, rawBody: attrRaw, hmacMessage: ts + '.' + attrRaw }\n} }];"
+        "jsCode": "const base = $('Config Base URL').item.json.controlRoomBaseUrl;\nconst projectId = $('Config Base URL').item.json.projectId || 'proj_aeon';\nconst observedAt = new Date().toISOString();\nconst metricEventId = 'metric-demo-' + $execution.id + '-' + Date.now();\nconst attrEventId = 'attr-demo-' + $execution.id + '-' + Date.now();\nconst metricBody = {\n  schemaVersion: '1',\n  eventId: metricEventId,\n  projectId,\n  channel: 'TWITTER',\n  observedAt,\n  impressions: 100,\n  engagements: 12,\n  clicks: 4,\n  reach: 80,\n  metadata: { source: 'mkt-06-stub', note: 'Replace with real platform metrics' }\n};\nconst attrBody = {\n  schemaVersion: '1',\n  eventId: attrEventId,\n  projectId,\n  kind: 'CLICK',\n  occurredAt: observedAt,\n  value: 1,\n  metadata: { source: 'mkt-06-stub' }\n};\nconst ts = Math.floor(Date.now() / 1000).toString();\nconst metricRaw = JSON.stringify(metricBody);\nconst attrRaw = JSON.stringify(attrBody);\nreturn [{ json: {\n  controlRoomBaseUrl: base,\n  metric: { timestamp: ts, rawBody: metricRaw, hmacMessage: ts + '.' + metricRaw },\n  attr: { timestamp: ts, rawBody: attrRaw, hmacMessage: ts + '.' + attrRaw }\n} }];"
       }
     },
     {
