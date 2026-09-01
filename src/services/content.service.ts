@@ -1,6 +1,6 @@
 // src/services/content.service.ts
 import { createHash } from 'crypto';
-import type { Channel, ContentType, Prisma } from '@prisma/client';
+import type { ApprovalStatus, Channel, ContentType, Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { guardianService } from '@/lib/guardian/guardian.service';
 import { riskTierFromGuardian } from '@/lib/guardian/risk-tier';
@@ -403,7 +403,11 @@ export class ContentService {
         })
       : [];
 
-    const latestRevision = content.approvals.find((a) => a.status === 'NEEDS_REVISION') ?? null;
+    const latestRevision =
+      content.approvals.find(
+        (a: { status: ApprovalStatus; comment: string | null; createdAt: Date; reviewer: { name: string | null } }) =>
+          a.status === 'NEEDS_REVISION'
+      ) ?? null;
     const revisionRequest = latestRevision
       ? {
           comment: latestRevision.comment,
