@@ -44,6 +44,7 @@ jest.mock('@/lib/n8n/campaign-policy', () => ({
 
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
+import { resolveProjectContext } from '@/lib/project/context';
 import { POST } from '@/app/api/studio/generate/route';
 import { callN8nGenerate } from '@/lib/n8n/generate-client';
 import { session } from '../helpers/n8n';
@@ -55,9 +56,37 @@ const mockedPrisma = prisma as unknown as {
   content: { findUnique: jest.Mock };
 };
 
+function projectCtx(role: string) {
+  return {
+    projectId: 'proj_aeon',
+    slug: 'aeon',
+    name: 'AEON',
+    role,
+    company: { id: 'cmpy_1', slug: 'adaptive', name: 'Adaptive' },
+    projects: [],
+  };
+}
+
+function mockPublishedPacks() {
+  mockedPrisma.project.findUnique.mockResolvedValue({
+    id: 'proj_aeon',
+    activeContextVersion: {
+      id: 'pv1',
+      pack: { schemaVersion: '1', promptCore: { identity: { name: 'AEON' } } },
+    },
+    company: {
+      activeContextVersion: {
+        id: 'cv1',
+        pack: { schemaVersion: '1', promptCore: { identity: { name: 'Adaptive' } } },
+      },
+    },
+  });
+}
+
 describe('POST /api/studio/generate', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    (resolveProjectContext as jest.Mock).mockResolvedValue(projectCtx('EDITOR'));
   });
 
   it('returns 409 when published packs are missing', async () => {
@@ -191,5 +220,53 @@ describe('POST /api/studio/generate', () => {
     expect(callN8nGenerate).not.toHaveBeenCalledWith(
       expect.objectContaining({ currentBody: 'CLIENT_MUST_NOT_WIN' })
     );
+  });
+
+  it('allows REVIEWER rewrite when contentId is set (author is someone else)', async () => {
+    (getServerSession as jest.Mock).mockResolvedValue(session('REVIEWER', 'rev-1'));
+    (resolveProjectContext as jest.Mock).mockResolvedValue(projectCtx('REVIEWER'));
+    mockedPrisma.content.findUnique.mockResolvedValue({
+      id: 'c1',
+      projectId: 'proj_aeon',
+      authorId: 'ed-1',
+      title: 'Old title',
+      body: 'Old body',
+      campaignId: null,
+      approvals: [],
+    });
+    mockPublishedPacks();
+    (callN8nGenerate as jest.Mock).mockResolvedValue({
+      ok: true,
+      data: { title: 'New', body: 'Rewritten' },
+    });
+
+    const res = await POST(
+      new NextRequest('http://localhost/api/studio/generate', {
+        method: 'POST',
+        body: JSON.stringify({
+          channel: 'TWITTER',
+          type: 'TWITTER_THREAD',
+          contentId: 'c1',
+        }),
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+    expect(res.status).toBe(200);
+    expect(callN8nGenerate).toHaveBeenCalled();
+  });
+
+  it('returns 403 when REVIEWER generates without contentId', async () => {
+    (getServerSession as jest.Mock).mockResolvedValue(session('REVIEWER', 'rev-1'));
+    (resolveProjectContext as jest.Mock).mockResolvedValue(projectCtx('REVIEWER'));
+
+    const res = await POST(
+      new NextRequest('http://localhost/api/studio/generate', {
+        method: 'POST',
+        body: JSON.stringify({ channel: 'TWITTER', type: 'TWITTER_THREAD' }),
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+    expect(res.status).toBe(403);
+    expect(callN8nGenerate).not.toHaveBeenCalled();
   });
 });

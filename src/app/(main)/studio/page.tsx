@@ -74,7 +74,7 @@ function StudioPageContent() {
 
   const { data: detail, isLoading: detailLoading } = useContent(contentId);
   const createContent = useCreateContent();
-  const updateContent = useUpdateContent(contentId ?? "");
+  const updateContent = useUpdateContent();
   const submitContent = useSubmitContent();
 
   const [title, setTitle] = useState("");
@@ -102,7 +102,21 @@ function StudioPageContent() {
   }
 
   useEffect(() => {
-    if (!contentId || !detail?.content || hydratedId === contentId) return;
+    if (!contentId) {
+      if (hydratedId !== null) {
+        setTitle("");
+        setBody("");
+        setType("TWITTER_THREAD");
+        setChannel("TWITTER");
+        setCampaignId("none");
+        setSavedDraft(null);
+        setHydratedId(null);
+        setGuardianResult(null);
+        setError(null);
+      }
+      return;
+    }
+    if (!detail?.content || hydratedId === contentId) return;
 
     const c = detail.content;
     setTitle(c.title);
@@ -291,25 +305,27 @@ function StudioPageContent() {
       campaignId: campaignId === "none" ? null : campaignId,
     };
 
+    const persistId = savedDraft?.contentId ?? contentId;
+
     try {
-      if (contentId) {
-        const updated = await updateContent.mutateAsync(fields);
+      if (persistId) {
+        const updated = await updateContent.mutateAsync({ id: persistId, ...fields });
         if (updated?.id && updated?.currentRevisionId) {
           setSavedDraft({ contentId: updated.id, revisionId: updated.currentRevisionId });
           setAttachMessage(null);
         }
         if (status === "PENDING_REVIEW") {
-          await submitContent.mutateAsync(contentId);
+          await submitContent.mutateAsync(persistId);
           toast({
             title: "Submitted for approval",
-            description: contentId,
+            description: persistId,
             variant: "success",
           });
           router.push("/queue");
         } else {
           toast({
             title: "Draft saved",
-            description: contentId,
+            description: persistId,
             variant: "success",
           });
         }

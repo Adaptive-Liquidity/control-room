@@ -30,7 +30,6 @@ export async function POST(req: NextRequest) {
     const ctx = await resolveProjectContext({
       requestedProjectId: req.headers.get("x-project-id"),
     });
-    requireProjectPermission(ctx, "content.edit");
 
     const body = await req.json();
     const validated = generateRequestSchema.parse(body);
@@ -62,6 +61,8 @@ export async function POST(req: NextRequest) {
       if (!validated.campaignId && row.campaignId) {
         validated.campaignId = row.campaignId;
       }
+    } else {
+      requireProjectPermission(ctx, "content.edit");
     }
 
     let campaign: { id: string; objective: string | null; thesis: string | null } | null =

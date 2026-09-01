@@ -131,10 +131,14 @@ export function useCreateContent() {
   });
 }
 
-export function useUpdateContent(id: string) {
+export function useUpdateContent() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (input: {
+    mutationFn: async ({
+      id,
+      ...input
+    }: {
+      id: string;
       title?: string;
       body?: string;
       type?: string;
@@ -149,8 +153,8 @@ export function useUpdateContent(id: string) {
       if (!res.ok) throw await parseApiError(res);
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['content', id] });
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['content', vars.id] });
       queryClient.invalidateQueries({ queryKey: ['queue'] });
     },
   });

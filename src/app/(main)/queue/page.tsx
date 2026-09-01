@@ -56,6 +56,16 @@ function decisionErrorMessage(err: unknown): string {
   return err.message;
 }
 
+function approveEditsPayload(title: string, body: string) {
+  const trimmedTitle = title.trim();
+  const trimmedBody = body.trim();
+  if (!trimmedTitle && !trimmedBody) return undefined;
+  return {
+    ...(trimmedTitle ? { title: trimmedTitle } : {}),
+    ...(trimmedBody ? { body: trimmedBody } : {}),
+  };
+}
+
 function GuardianFlags({ flags }: { flags: unknown }) {
   if (!Array.isArray(flags) || flags.length === 0) {
     return <p className="text-xs text-muted-foreground">No Guardian findings.</p>;
@@ -151,13 +161,7 @@ export default function QueuePage() {
     setActionError(null);
     try {
       if (kind === "approve") {
-        const edits =
-          approveTitle.trim() || approveBody.trim()
-            ? {
-                ...(approveTitle.trim() ? { title: approveTitle.trim() } : {}),
-                ...(approveBody.trim() ? { body: approveBody.trim() } : {}),
-              }
-            : undefined;
+        const edits = approveEditsPayload(approveTitle, approveBody);
         await approve.mutateAsync({
           contentId: selectedId,
           revisionId,
@@ -282,6 +286,10 @@ export default function QueuePage() {
                         variant="outline"
                         disabled={!item.currentRevisionId || busy}
                         onClick={() => {
+                          const edits =
+                            selectedId === item.id
+                              ? approveEditsPayload(approveTitle, approveBody)
+                              : undefined;
                           setSelectedId(item.id);
                           void (async () => {
                             if (!item.currentRevisionId) return;
@@ -290,6 +298,7 @@ export default function QueuePage() {
                               await approve.mutateAsync({
                                 contentId: item.id,
                                 revisionId: item.currentRevisionId,
+                                edits,
                               });
                             } catch (err) {
                               setSelectedId(item.id);

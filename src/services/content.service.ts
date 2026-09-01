@@ -215,7 +215,7 @@ export class ContentService {
 
     if (mutator) {
       assertStudioMutator({ userId, role: mutator.role, authorId: content.authorId });
-      if (contentFieldsChanged && !isStudioEditableStatus(content.status)) {
+      if (!isStudioEditableStatus(content.status)) {
         throw new ConflictError(
           `Cannot edit content in status ${content.status}; must be DRAFT, REVISION_REQUESTED, or REJECTED`
         );
