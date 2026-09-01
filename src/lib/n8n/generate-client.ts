@@ -17,6 +17,11 @@ export const generateRequestSchema = z.object({
   titleHint: z.string().max(200).optional(),
   projectId: z.string().optional(),
   campaignId: z.string().optional(),
+  contentId: z.string().min(1).optional(),
+  mode: z.enum(['create', 'rewrite']).optional(),
+  currentTitle: z.string().max(200).optional(),
+  currentBody: z.string().max(50000).optional(),
+  reviewComment: z.string().max(5000).nullable().optional(),
   contextPack: z.unknown().optional(),
   composedHash: z.string().optional(),
 });

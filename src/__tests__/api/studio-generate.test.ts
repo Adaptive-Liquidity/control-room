@@ -2,6 +2,9 @@ jest.mock('@/lib/prisma', () => ({
   prisma: {
     project: { findUnique: jest.fn() },
     campaign: { findFirst: jest.fn() },
+    content: { findUnique: jest.fn() },
+    contentRevision: {},
+    approval: {},
   },
 }));
 
@@ -49,6 +52,7 @@ import { NextRequest } from 'next/server';
 const mockedPrisma = prisma as unknown as {
   project: { findUnique: jest.Mock };
   campaign: { findFirst: jest.Mock };
+  content: { findUnique: jest.Mock };
 };
 
 describe('POST /api/studio/generate', () => {
@@ -120,6 +124,72 @@ describe('POST /api/studio/generate', () => {
           }),
         }),
       })
+    );
+  });
+
+  it('rewrite injects server body and latest revision comment', async () => {
+    (getServerSession as jest.Mock).mockResolvedValue(session('EDITOR', 'ed-1'));
+    mockedPrisma.content = {
+      findUnique: jest.fn().mockResolvedValue({
+        id: 'c1',
+        projectId: 'proj_aeon',
+        authorId: 'ed-1',
+        title: 'Old title',
+        body: 'Old body',
+        campaignId: null,
+        approvals: [
+          {
+            status: 'NEEDS_REVISION',
+            comment: 'Tighten the APY claim',
+            createdAt: new Date('2026-09-01'),
+            reviewer: { name: 'Rev' },
+          },
+        ],
+      }),
+    } as never;
+    mockedPrisma.project.findUnique.mockResolvedValue({
+      id: 'proj_aeon',
+      activeContextVersion: {
+        id: 'pv1',
+        pack: { schemaVersion: '1', promptCore: { identity: { name: 'AEON' } } },
+      },
+      company: {
+        activeContextVersion: {
+          id: 'cv1',
+          pack: { schemaVersion: '1', promptCore: { identity: { name: 'Adaptive' } } },
+        },
+      },
+    });
+    (callN8nGenerate as jest.Mock).mockResolvedValue({
+      ok: true,
+      data: { title: 'New', body: 'Rewritten' },
+    });
+
+    const res = await POST(
+      new NextRequest('http://localhost/api/studio/generate', {
+        method: 'POST',
+        body: JSON.stringify({
+          channel: 'TWITTER',
+          type: 'TWITTER_THREAD',
+          contentId: 'c1',
+          mode: 'rewrite',
+          currentBody: 'CLIENT_MUST_NOT_WIN',
+        }),
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+    expect(res.status).toBe(200);
+    expect(callN8nGenerate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mode: 'rewrite',
+        contentId: 'c1',
+        currentTitle: 'Old title',
+        currentBody: 'Old body',
+        reviewComment: 'Tighten the APY claim',
+      })
+    );
+    expect(callN8nGenerate).not.toHaveBeenCalledWith(
+      expect.objectContaining({ currentBody: 'CLIENT_MUST_NOT_WIN' })
     );
   });
 });
