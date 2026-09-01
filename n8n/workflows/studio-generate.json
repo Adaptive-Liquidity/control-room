@@ -1,0 +1,187 @@
+{
+  "id": "58oYBY2ODlpRYhcc",
+  "name": "AEON Studio Generate",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true
+  },
+  "nodes": [
+    {
+      "id": "f3a1c8e2-9b4d-4f6a-a1c2-3d4e5f607182",
+      "name": "Security note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        80
+      ],
+      "parameters": {
+        "content": "## Studio Generate webhook\nThis webhook **requires Header Auth** before activation. Create an n8n **Header Auth** credential:\n- Name: `X-AEON-Generate-Auth`\n- Value: Control Room `N8N_GENERATE_SECRET` (do **not** reuse `N8N_INGRESS_SECRET`)\n\nControl Room also signs `X-N8N-Signature` (timestamp + raw body). Header Auth is the receiver-side gate so a guessed path cannot spend OpenAI credits.\n\nRe-import over workflow `58oYBY2ODlpRYhcc`. Re-attach **OpenAI account** and **Studio Generate Header Auth**. Do **not** duplicate MKT-04 Wait / resume flows.",
+        "height": 220,
+        "width": 520,
+        "color": 3
+      }
+    },
+    {
+      "id": "a7b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        320
+      ],
+      "webhookId": "c8d9e0f1-a2b3-4c5d-8e9f-0123456789ab",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "aeon-studio-generate",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "studio-generate-header-auth",
+          "name": "Studio Generate Header Auth"
+        }
+      }
+    },
+    {
+      "id": "b8c9d0e1-f2a3-4b5c-9d0e-123456789abc",
+      "name": "Build prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        320
+      ],
+      "parameters": {
+        "jsCode": "const raw = $input.first().json;\nconst p = raw.body ?? raw;\n\nconst system = p.contextPack\n  ? JSON.stringify(p.contextPack)\n  : 'Follow Adaptive Liquidity / AEON brand voice. No yield promises.';\n\nlet user;\nif (p.mode === 'rewrite') {\n  user = [\n    'Rewrite this marketing draft per reviewer feedback.',\n    '',\n    'Review comment: ' + (p.reviewComment ?? '(none)'),\n    'Current title: ' + (p.currentTitle ?? ''),\n    'Current body:',\n    p.currentBody ?? '',\n    '',\n    'Channel: ' + (p.channel ?? ''),\n    'Type: ' + (p.type ?? ''),\n    '',\n    'Return ONLY valid JSON (no markdown fences) with keys: title (string, max 200 chars), body (string).'\n  ].join('\\n');\n} else {\n  user = [\n    'Create marketing content for AEON Control Room.',\n    '',\n    'Channel: ' + (p.channel ?? ''),\n    'Type: ' + (p.type ?? ''),\n    'Prompt: ' + (p.prompt ?? ''),\n    'Title hint: ' + (p.titleHint ?? ''),\n    '',\n    'Return ONLY valid JSON (no markdown fences) with keys: title (string, max 200 chars), body (string).'\n  ].join('\\n');\n}\n\nreturn [{ json: { system, user, channel: p.channel, type: p.type } }];"
+      }
+    },
+    {
+      "id": "c9d0e1f2-a3b4-4c5d-8e9f-23456789abcd",
+      "name": "OpenAI Chat",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.3,
+      "position": [
+        480,
+        320
+      ],
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o",
+          "cachedResultName": "gpt-4o"
+        },
+        "operation": "response",
+        "resource": "text",
+        "responses": {
+          "values": [
+            {
+              "content": "={{ $('Build prompt').item.json.system }}",
+              "role": "system",
+              "type": "text"
+            },
+            {
+              "content": "={{ $('Build prompt').item.json.user }}",
+              "role": "user",
+              "type": "text"
+            }
+          ]
+        },
+        "simplify": true
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "BmB59ljWXBKxuiDZ",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "id": "d0e1f2a3-b4c5-4d6e-9f0a-3456789abcde",
+      "name": "Parse JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        320
+      ],
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nlet text = '';\nif (typeof item.output === 'string') {\n  text = item.output;\n} else if (Array.isArray(item.output)) {\n  const parts = [];\n  for (const msg of item.output) {\n    if (!msg || typeof msg !== 'object') continue;\n    const content = msg.content;\n    if (typeof content === 'string') {\n      parts.push(content);\n      continue;\n    }\n    if (!Array.isArray(content)) continue;\n    for (const part of content) {\n      if (!part || typeof part !== 'object') continue;\n      if (typeof part.output_text === 'string') parts.push(part.output_text);\n      else if (typeof part.text === 'string') parts.push(part.text);\n    }\n  }\n  text = parts.join('');\n} else if (typeof item.text === 'string') {\n  text = item.text;\n} else if (item.message && typeof item.message.content === 'string') {\n  text = item.message.content;\n} else if (Array.isArray(item.choices) && typeof item.choices[0]?.message?.content === 'string') {\n  text = item.choices[0].message.content;\n} else {\n  text = JSON.stringify(item);\n}\n\nconst fence = text.match(/```(?:json)?\\s*([\\s\\S]*?)```/i);\nif (fence) text = fence[1];\nconst start = text.indexOf('{');\nconst end = text.lastIndexOf('}');\nif (start >= 0 && end > start) text = text.slice(start, end + 1);\n\nlet parsed;\ntry { parsed = JSON.parse(text); } catch (e) {\n  throw new Error('Generate returned non-JSON');\n}\nif (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {\n  throw new Error('Generate returned invalid shape (expected title + body)');\n}\nif (typeof parsed.title !== 'string' || typeof parsed.body !== 'string') {\n  throw new Error('Generate returned invalid shape (expected title + body)');\n}\nconst title = parsed.title.trim();\nconst body = parsed.body.trim();\nif (!title || !body) {\n  throw new Error('Generate returned invalid shape (expected title + body)');\n}\n\nreturn [{ json: { title: title.slice(0, 200), body: body.slice(0, 50000) } }];"
+      }
+    },
+    {
+      "id": "e1f2a3b4-c5d6-4e7f-8a9b-456789abcdef",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        960,
+        320
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ title: $json.title, body: $json.body }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Build prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build prompt": {
+      "main": [
+        [
+          {
+            "node": "OpenAI Chat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat": {
+      "main": [
+        [
+          {
+            "node": "Parse JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse JSON": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp"
+  },
+  "pinData": {},
+  "versionId": "studio-generate-v3"
+}

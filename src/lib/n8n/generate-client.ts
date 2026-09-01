@@ -17,6 +17,11 @@ export const generateRequestSchema = z.object({
   titleHint: z.string().max(200).optional(),
   projectId: z.string().optional(),
   campaignId: z.string().optional(),
+  contentId: z.string().min(1).optional(),
+  mode: z.enum(['create', 'rewrite']).optional(),
+  currentTitle: z.string().max(200).optional(),
+  currentBody: z.string().max(50000).optional(),
+  reviewComment: z.string().max(5000).nullable().optional(),
   contextPack: z.unknown().optional(),
   composedHash: z.string().optional(),
 });
@@ -36,10 +41,10 @@ export async function callN8nGenerate(
   payload: GenerateRequest
 ): Promise<{ ok: true; data: GenerateResponse } | { ok: false; error: string; status?: number }> {
   const url = process.env.N8N_GENERATE_WEBHOOK_URL;
-  const secret = process.env.N8N_GENERATE_SECRET ?? process.env.N8N_INGRESS_SECRET;
+  const secret = process.env.N8N_GENERATE_SECRET;
 
   if (!url) return { ok: false, error: "N8N_GENERATE_WEBHOOK_URL is not configured" };
-  if (!secret) return { ok: false, error: "N8N_GENERATE_SECRET (or N8N_INGRESS_SECRET) is not set" };
+  if (!secret) return { ok: false, error: "N8N_GENERATE_SECRET is not set" };
 
   const body = JSON.stringify({
     schemaVersion: "1",
@@ -55,6 +60,7 @@ export async function callN8nGenerate(
         "Content-Type": "application/json",
         "X-N8N-Timestamp": timestamp,
         "X-N8N-Signature": signature,
+        "X-AEON-Generate-Auth": secret,
       },
       body,
       signal: AbortSignal.timeout(90_000),

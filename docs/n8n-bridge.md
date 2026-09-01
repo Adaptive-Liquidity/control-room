@@ -30,7 +30,7 @@ Create at least one active user with role `SERVICE` — draft ingestion attribut
 | `N8N_RESUME_SECRET` | Control Room + n8n | HMAC for Control Room → n8n Wait resume callbacks (**separate** from ingress) |
 | `N8N_BRIDGE_ENCRYPTION_KEY` | Control Room only | AES-GCM for `N8nBridgeJob.resumeUrlEncrypted` |
 | `N8N_GENERATE_WEBHOOK_URL` | Control Room + n8n | Respond webhook for Studio **Generate with AI** (sync) |
-| `N8N_GENERATE_SECRET` | Control Room + n8n | HMAC for generate requests (falls back to `N8N_INGRESS_SECRET` if unset) |
+| `N8N_GENERATE_SECRET` | Control Room + n8n | HMAC + Header Auth for Studio generate. **Do not** reuse `N8N_INGRESS_SECRET`. |
 | `CRON_SECRET` | Control Room + scheduler | Bearer token for `/api/cron/outbox-drain` |
 | `PUSHER_*` / `NEXT_PUBLIC_PUSHER_*` | Control Room | Optional realtime; UI falls back to polling |
 | `FIREBASE_ADMIN_*` / `NEXT_PUBLIC_FIREBASE_*` | Control Room | Signed asset upload URLs (GCS) |
@@ -407,7 +407,7 @@ Human-initiated draft assist from Content Studio. Requires session + `content.ed
 
 ### Control Room → n8n request
 
-HMAC uses `N8N_GENERATE_SECRET` (or `N8N_INGRESS_SECRET` if generate secret unset):
+HMAC uses `N8N_GENERATE_SECRET` only (never `N8N_INGRESS_SECRET`):
 
 | Header | Value |
 |---|---|
@@ -421,7 +421,16 @@ HMAC uses `N8N_GENERATE_SECRET` (or `N8N_INGRESS_SECRET` if generate secret unse
   "channel": "TWITTER",
   "type": "TWITTER_THREAD",
   "prompt": "optional brief",
-  "titleHint": "optional"
+  "titleHint": "optional",
+  "contentId": "optional — when set, Control Room loads current draft + latest revision comment and sends mode=rewrite",
+  "mode": "create | rewrite (set server-side when contentId present)",
+  "currentTitle": "rewrite only — server-populated from Content row",
+  "currentBody": "rewrite only — server-populated from Content row",
+  "reviewComment": "rewrite only — latest NEEDS_REVISION approval comment or null",
+  "contextPack": { "company": {}, "project": {}, "campaign": {} },
+  "composedHash": "sha256 of composed context pack",
+  "projectId": "proj_aeon",
+  "campaignId": "optional"
 }
 ```
 
@@ -436,9 +445,29 @@ HMAC uses `N8N_GENERATE_SECRET` (or `N8N_INGRESS_SECRET` if generate secret unse
 }
 ```
 
-Recommended n8n pattern: **Webhook** (POST) → **Creator LLM** (reuse MKT-03 prompt/parser) → **Respond to Webhook** with JSON above. Register production URL in `N8N_GENERATE_WEBHOOK_URL`.
+`title` and `body` are required; `type` / `channel` are optional passthrough.
 
-Cloud workflow (stub — replace Code node with Creator LLM): `https://agentsea.app.n8n.cloud/webhook/aeon-studio-generate` (workflow `AEON Studio Generate`, id `58oYBY2ODlpRYhcc`).
+### Environment variables
+
+| Variable | Required | Notes |
+|---|---|---|
+| `N8N_GENERATE_WEBHOOK_URL` | Yes (for generate) | Production Respond webhook URL, e.g. `https://agentsea.app.n8n.cloud/webhook/aeon-studio-generate` |
+| `N8N_GENERATE_SECRET` | Yes (for generate) | Distinct from `N8N_INGRESS_SECRET`. HMAC + `X-AEON-Generate-Auth` Header Auth. |
+
+Also documented in `.env.example`.
+
+### n8n workflow import
+
+Recommended pattern: **Webhook** (POST `aeon-studio-generate`, Header Auth, `responseMode: responseNode`) → **Build prompt** (context pack + create/rewrite fields) → **OpenAI** (`gpt-4o`, same credential as MKT-03, Responses `simplify: true`) → **Parse JSON** → **Respond to Webhook** with `{ title, body }`. Parse JSON reads string `output`, then simplified Responses `output[].content[]` (`output_text` or `text`), then `text` / `message.content` / string `choices[0].message.content`. It throws on non-JSON or non-string `title`/`body` so Control Room toasts a generate failure and leaves the editor unchanged. Re-import over `58oYBY2ODlpRYhcc`.
+
+Export: `n8n/workflows/studio-generate.json`. **Re-import over** cloud workflow `AEON Studio Generate` (id `58oYBY2ODlpRYhcc`) — do **not** create a second workflow. After import, attach:
+
+1. **OpenAI account** on the OpenAI node
+2. **Header Auth** on the Webhook (`X-AEON-Generate-Auth` = `N8N_GENERATE_SECRET`, same value Control Room sends)
+
+Control Room signs `X-N8N-Signature` and sends `X-AEON-Generate-Auth`. n8n Header Auth is the receiver gate; do not activate this webhook without it.
+
+Production URL: `https://agentsea.app.n8n.cloud/webhook/aeon-studio-generate` (workflow `AEON Studio Generate`, id `58oYBY2ODlpRYhcc`). Register in `N8N_GENERATE_WEBHOOK_URL`.
 
 ---
 

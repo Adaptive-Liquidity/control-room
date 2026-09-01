@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import { ChevronLeft } from "lucide-react";
@@ -22,6 +23,7 @@ import {
 } from "@/hooks/useQueue";
 import { useContent } from "@/hooks/useContent";
 import { cn } from "@/lib/utils";
+import { canStudioMutate } from "@/lib/content/studio-mutate";
 
 const CHANNEL_LABELS: Record<string, string> = {
   TWITTER: "X",
@@ -55,6 +57,16 @@ function decisionErrorMessage(err: unknown): string {
   return err.message;
 }
 
+function approveEditsPayload(title: string, body: string) {
+  const trimmedTitle = title.trim();
+  const trimmedBody = body.trim();
+  if (!trimmedTitle && !trimmedBody) return undefined;
+  return {
+    ...(trimmedTitle ? { title: trimmedTitle } : {}),
+    ...(trimmedBody ? { body: trimmedBody } : {}),
+  };
+}
+
 function GuardianFlags({ flags }: { flags: unknown }) {
   if (!Array.isArray(flags) || flags.length === 0) {
     return <p className="text-xs text-muted-foreground">No Guardian findings.</p>;
@@ -81,6 +93,8 @@ export default function QueuePage() {
   const [filter, setFilter] = useState<QueueFilter>("pending");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [comment, setComment] = useState("");
+  const [approveTitle, setApproveTitle] = useState("");
+  const [approveBody, setApproveBody] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [scheduledAt, setScheduledAt] = useState("");
 
@@ -126,8 +140,20 @@ export default function QueuePage() {
     [items, selectedId]
   );
 
+  const canEditStudio = Boolean(
+    selectedSummary &&
+      session?.user?.id &&
+      canStudioMutate({
+        userId: session.user.id,
+        role: session.user.role ?? "",
+        authorId: selectedSummary.author.id,
+      })
+  );
+
   useEffect(() => {
     setScheduledAt("");
+    setApproveTitle("");
+    setApproveBody("");
   }, [selectedId]);
 
   async function runDecision(
@@ -140,7 +166,13 @@ export default function QueuePage() {
     setActionError(null);
     try {
       if (kind === "approve") {
-        await approve.mutateAsync({ contentId: selectedId, revisionId, comment: comment || undefined });
+        const edits = approveEditsPayload(approveTitle, approveBody);
+        await approve.mutateAsync({
+          contentId: selectedId,
+          revisionId,
+          comment: comment || undefined,
+          edits,
+        });
         toast({ title: "Approved", description: "Content released from queue.", variant: "success" });
       } else if (kind === "reject") {
         if (!comment.trim()) {
@@ -158,6 +190,8 @@ export default function QueuePage() {
         toast({ title: "Revision requested", description: "Sent back to author.", variant: "default" });
       }
       setComment("");
+      setApproveTitle("");
+      setApproveBody("");
     } catch (err) {
       const msg = decisionErrorMessage(err);
       setActionError(msg);
@@ -257,6 +291,10 @@ export default function QueuePage() {
                         variant="outline"
                         disabled={!item.currentRevisionId || busy}
                         onClick={() => {
+                          const edits =
+                            selectedId === item.id
+                              ? approveEditsPayload(approveTitle, approveBody)
+                              : undefined;
                           setSelectedId(item.id);
                           void (async () => {
                             if (!item.currentRevisionId) return;
@@ -265,6 +303,7 @@ export default function QueuePage() {
                               await approve.mutateAsync({
                                 contentId: item.id,
                                 revisionId: item.currentRevisionId,
+                                edits,
                               });
                             } catch (err) {
                               setSelectedId(item.id);
@@ -412,6 +451,28 @@ export default function QueuePage() {
                   </div>
                 )}
 
+                {detail?.assets && detail.assets.length > 0 && (
+                  <div>
+                    <div className="mb-1 text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground sm:text-[11px]">
+                      Assets
+                    </div>
+                    <ul className="space-y-1 text-xs text-muted-foreground">
+                      {detail.assets.map((asset) => (
+                        <li key={asset.id}>{asset.asset.originalFilename}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {selectedSummary &&
+                  (selectedSummary.status === "DRAFT" ||
+                    selectedSummary.status === "REVISION_REQUESTED") &&
+                  canEditStudio && (
+                    <Button asChild size="sm" variant="outline">
+                      <Link href={`/studio?id=${selectedSummary.id}`}>Open in Studio</Link>
+                    </Button>
+                  )}
+
                 {canApprove && detail && SCHEDULABLE_STATUSES.has(detail.content.status) && (
                   <div>
                     <label
@@ -466,6 +527,31 @@ export default function QueuePage() {
                   />
                 </div>
 
+                {canApprove && (
+                  <div className="space-y-3">
+                    <Input
+                      aria-label="Approve with title edit"
+                      value={approveTitle}
+                      onChange={(e) => setApproveTitle(e.target.value)}
+                      placeholder="Approve with title edit (optional)"
+                    />
+                    <div>
+                      <label
+                        htmlFor="approve-body"
+                        className="mb-1 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground sm:text-[11px]"
+                      >
+                        Approve with body edit (optional)
+                      </label>
+                      <Textarea
+                        id="approve-body"
+                        className="min-h-[72px]"
+                        value={approveBody}
+                        onChange={(e) => setApproveBody(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                )}
+
                 <div className="hidden flex-wrap gap-2 lg:flex">
                   <Button
                     size="sm"
@@ -485,7 +571,7 @@ export default function QueuePage() {
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={!canApprove || !revisionId || busy}
+                    disabled={!canApprove || !revisionId || busy || !comment.trim()}
                     onClick={() => void runDecision("revision")}
                   >
                     Request revision
@@ -527,7 +613,7 @@ export default function QueuePage() {
             <Button
               size="sm"
               variant="outline"
-              disabled={!canApprove || !revisionId || busy}
+              disabled={!canApprove || !revisionId || busy || !comment.trim()}
               onClick={() => void runDecision("revision")}
             >
               Revision

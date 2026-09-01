@@ -6,6 +6,7 @@ Importable snapshots of the AEON Control Room execution plane (n8n Cloud).
 |---|---|---|
 | `mkt-03-04-05.json` | Staged Agentic Marketing (policy → research → creator → Wait → mock publish → AgentRuns) | https://agentsea.app.n8n.cloud/workflow/Mr2NsTTTVKvuGZKa |
 | `mkt-06-metrics.json` | Metrics/Attribution stub (HMAC → HQ ingresses) | https://agentsea.app.n8n.cloud/workflow/2lYDNN28W8gMrGtC |
+| `studio-generate.json` | Studio Generate with AI (sync Respond webhook; create + rewrite) | https://agentsea.app.n8n.cloud/workflow/58oYBY2ODlpRYhcc |
 
 Contracts, HMAC, and node map: [docs/n8n-bridge.md](../../docs/n8n-bridge.md).
 

@@ -1,6 +1,6 @@
 // src/services/content.service.ts
 import { createHash } from 'crypto';
-import type { Channel, ContentType, Prisma } from '@prisma/client';
+import type { ApprovalStatus, Channel, ContentType, Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { guardianService } from '@/lib/guardian/guardian.service';
 import { riskTierFromGuardian } from '@/lib/guardian/risk-tier';
@@ -9,6 +9,11 @@ import {
   emitContentCreated,
   emitContentUpdated,
 } from '@/lib/pusher/server';
+import {
+  STUDIO_EDITABLE_STATUSES,
+  assertStudioMutator,
+  isStudioEditableStatus,
+} from '@/lib/content/studio-mutate';
 import type { Content } from '@/types';
 
 export class ConflictError extends Error {
@@ -27,9 +32,71 @@ export class ValidationServiceError extends Error {
   }
 }
 
+export class NotFoundError extends Error {
+  statusCode = 404;
+  constructor(message: string) {
+    super(message);
+    this.name = 'NotFoundError';
+  }
+}
+
+export class BadRequestError extends Error {
+  statusCode = 400;
+  constructor(message: string) {
+    super(message);
+    this.name = 'BadRequestError';
+  }
+}
+
 export function hashContent(title: string, body: string): string {
   return createHash('sha256').update(`${title}\n${body}`).digest('hex');
 }
+
+async function lockEditableContent(
+  tx: Prisma.TransactionClient,
+  id: string,
+  projectId: string
+) {
+  const rows = await tx.$queryRaw<
+    Array<{
+      id: string;
+      status: string;
+      title: string;
+      body: string;
+      type: ContentType;
+      channel: Channel;
+    }>
+  >`
+    SELECT id, status, title, body, type, channel
+    FROM contents
+    WHERE id = ${id} AND "projectId" = ${projectId}
+    FOR UPDATE
+  `;
+  const locked = rows[0];
+  if (!locked) throw new NotFoundError('Content not found');
+  if (!isStudioEditableStatus(locked.status)) {
+    throw new ConflictError(
+      `Cannot edit content in status ${locked.status}; must be DRAFT, REVISION_REQUESTED, or REJECTED`
+    );
+  }
+  return locked;
+}
+
+const publicUserSelect = {
+  id: true,
+  name: true,
+  email: true,
+  avatar: true,
+  role: true,
+} as const;
+
+const publicReviewerSelect = { id: true, name: true, email: true } as const;
+
+const studioWriteInclude = {
+  author: { select: publicUserSelect },
+  approvals: { include: { reviewer: { select: publicReviewerSelect } } },
+  campaign: true,
+} as const;
 
 export class ContentService {
   async createRevision(
@@ -148,6 +215,11 @@ export class ContentService {
         tx
       );
 
+      const status = data.status ?? 'PENDING_REVIEW';
+      if (guardianResult.result === 'BLOCK' && status === 'PENDING_REVIEW') {
+        throw new ValidationServiceError('Guardian BLOCK; revision not saved');
+      }
+
       await tx.activityLog.create({
         data: {
           userId: data.authorId,
@@ -166,9 +238,7 @@ export class ContentService {
       return tx.content.findUniqueOrThrow({
         where: { id: created.id },
         include: {
-          author: true,
-          approvals: { include: { reviewer: true } },
-          campaign: true,
+          ...studioWriteInclude,
           revisions: { orderBy: { version: 'desc' }, take: 1 },
         },
       });
@@ -196,17 +266,35 @@ export class ContentService {
       scheduledAt?: Date | null;
     },
     userId: string,
-    projectId: string
+    projectId: string,
+    mutator?: { role: string }
   ) {
     const db = scopedPrisma(projectId, prisma);
     const content = await db.content.findUnique({ where: { id } });
-    if (!content) throw new Error('Content not found');
+    if (!content) throw new NotFoundError('Content not found');
 
-    const contentFieldsChanged =
+    const contentFieldsSupplied =
       data.title !== undefined ||
       data.body !== undefined ||
       data.type !== undefined ||
       data.channel !== undefined;
+    const attemptingContentWrite = contentFieldsSupplied || data.campaignId !== undefined;
+
+    if (mutator) {
+      assertStudioMutator({ userId, role: mutator.role, authorId: content.authorId });
+    }
+    if (attemptingContentWrite && !isStudioEditableStatus(content.status)) {
+      throw new ConflictError(
+        `Cannot edit content in status ${content.status}; must be DRAFT, REVISION_REQUESTED, or REJECTED`
+      );
+    }
+
+    if (data.title !== undefined && !data.title.trim()) {
+      throw new BadRequestError('Title and body are required');
+    }
+    if (data.body !== undefined && !data.body.trim()) {
+      throw new BadRequestError('Title and body are required');
+    }
 
     if (data.campaignId) {
       const campaign = await db.campaign.findUnique({
@@ -216,20 +304,6 @@ export class ContentService {
       if (!campaign) {
         throw new ValidationServiceError('Campaign not found in active project');
       }
-    }
-
-    if (contentFieldsChanged) {
-      await this.createRevision(
-        id,
-        {
-          title: data.title ?? content.title,
-          body: data.body ?? content.body,
-          type: data.type ?? content.type,
-          channel: data.channel ?? content.channel,
-        },
-        userId,
-        projectId
-      );
     }
 
     const updateData: Prisma.ContentUpdateInput = {
@@ -242,25 +316,75 @@ export class ContentService {
         : {}),
     };
 
-    const updated = await db.content.update({
-      where: { id },
-      data: updateData,
-      include: {
-        author: true,
-        approvals: { include: { reviewer: true } },
-        campaign: true,
-      },
-    });
+    const include = studioWriteInclude;
 
-    await db.activityLog.create({
-      data: {
-        userId,
-        projectId,
-        type: 'CONTENT_UPDATED',
-        description: `Updated content: "${updated.title}"`,
-        metadata: { contentId: id },
-      },
-    });
+    let updated;
+    if (attemptingContentWrite) {
+      updated = await prisma.$transaction(async (tx) => {
+        const scopedTx = scopedPrisma(projectId, tx);
+        const locked = await lockEditableContent(tx, id, projectId);
+        const nextTitle = data.title !== undefined ? data.title.trim() : locked.title;
+        const nextBody = data.body !== undefined ? data.body.trim() : locked.body;
+        const nextType = data.type ?? locked.type;
+        const nextChannel = data.channel ?? locked.channel;
+        const revisionNeeded =
+          (data.title !== undefined && nextTitle !== locked.title) ||
+          (data.body !== undefined && nextBody !== locked.body) ||
+          (data.type !== undefined && data.type !== locked.type) ||
+          (data.channel !== undefined && data.channel !== locked.channel);
+        if (revisionNeeded) {
+          const { guardianResult } = await this.createRevision(
+            id,
+            {
+              title: nextTitle,
+              body: nextBody,
+              type: nextType,
+              channel: nextChannel,
+            },
+            userId,
+            projectId,
+            tx
+          );
+          if (guardianResult.result === 'BLOCK') {
+            throw new ValidationServiceError('Guardian BLOCK; revision not saved');
+          }
+        }
+
+        const row = await scopedTx.content.update({
+          where: { id },
+          data: updateData,
+          include,
+        });
+
+        await scopedTx.activityLog.create({
+          data: {
+            userId,
+            projectId,
+            type: 'CONTENT_UPDATED',
+            description: `Updated content: "${row.title}"`,
+            metadata: { contentId: id },
+          },
+        });
+
+        return row;
+      });
+    } else {
+      updated = await db.content.update({
+        where: { id },
+        data: updateData,
+        include,
+      });
+
+      await db.activityLog.create({
+        data: {
+          userId,
+          projectId,
+          type: 'CONTENT_UPDATED',
+          description: `Updated content: "${updated.title}"`,
+          metadata: { contentId: id },
+        },
+      });
+    }
 
     await emitContentUpdated({
       contentId: updated.id,
@@ -272,13 +396,68 @@ export class ContentService {
     return updated;
   }
 
+  async submit(id: string, userId: string, projectId: string, role: string) {
+    const db = scopedPrisma(projectId, prisma);
+    const content = await db.content.findUnique({ where: { id } });
+    if (!content) throw new ValidationServiceError('Content not found');
+    assertStudioMutator({ userId, role, authorId: content.authorId });
+    if (!isStudioEditableStatus(content.status)) {
+      throw new ConflictError(
+        `Cannot submit content in status ${content.status}`
+      );
+    }
+    if (!content.title.trim() || !content.body.trim()) {
+      throw new BadRequestError('Title and body are required');
+    }
+    if (content.currentRevisionId) {
+      const revision = await prisma.contentRevision.findUnique({
+        where: { id: content.currentRevisionId },
+        select: { guardianResult: true },
+      });
+      if (revision?.guardianResult === 'BLOCK') {
+        throw new ValidationServiceError('Cannot submit content with Guardian BLOCK result');
+      }
+    }
+    const previousStatus = content.status;
+    const updated = await prisma.$transaction(async (tx) => {
+      const scopedTx = scopedPrisma(projectId, tx);
+      const moved = await scopedTx.content.updateMany({
+        where: { id, status: { in: [...STUDIO_EDITABLE_STATUSES] } },
+        data: { status: 'PENDING_REVIEW' },
+      });
+      if (moved.count === 0) {
+        throw new ConflictError(`Cannot submit content in status ${content.status}`);
+      }
+      const row = await scopedTx.content.findUnique({
+        where: { id },
+        include: studioWriteInclude,
+      });
+      if (!row) throw new NotFoundError('Content not found');
+      await scopedTx.activityLog.create({
+        data: {
+          userId,
+          projectId,
+          type: 'CONTENT_UPDATED',
+          description: `Submitted for review: "${row.title}"`,
+          metadata: { contentId: id, from: previousStatus, to: 'PENDING_REVIEW' },
+        },
+      });
+      return row;
+    });
+    await emitContentUpdated({
+      contentId: updated.id,
+      projectId,
+      revisionId: updated.currentRevisionId ?? undefined,
+      status: updated.status,
+    });
+    return updated;
+  }
+
   async getById(id: string, projectId: string) {
     return scopedPrisma(projectId, prisma).content.findUnique({
       where: { id },
       include: {
-        author: true,
-        approvals: { include: { reviewer: true } },
-        campaign: true,
+        ...studioWriteInclude,
         revisions: { orderBy: { version: 'desc' }, take: 5 },
       },
     });
@@ -337,6 +516,29 @@ export class ContentService {
         })
       : null;
 
+    const assets = currentRevision
+      ? await prisma.contentAsset.findMany({
+          where: { contentRevisionId: currentRevision.id },
+          orderBy: { position: 'asc' },
+          include: {
+            asset: { select: { id: true, originalFilename: true, mimeType: true } },
+          },
+        })
+      : [];
+
+    const latestRevision =
+      content.approvals.find(
+        (a: { status: ApprovalStatus; comment: string | null; createdAt: Date; reviewer: { name: string | null } }) =>
+          a.status === 'NEEDS_REVISION'
+      ) ?? null;
+    const revisionRequest = latestRevision
+      ? {
+          comment: latestRevision.comment,
+          reviewerName: latestRevision.reviewer.name,
+          createdAt: latestRevision.createdAt,
+        }
+      : null;
+
     const { approvals, ...contentFields } = content;
 
     return {
@@ -344,6 +546,8 @@ export class ContentService {
       currentRevision,
       priorRevision,
       approvals,
+      assets,
+      revisionRequest,
       guardian: currentRevision
         ? {
             policyVersion: currentRevision.guardianPolicyVersion,

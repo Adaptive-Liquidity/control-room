@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { ForbiddenError } from "@/lib/rbac";
+import { assertStudioMutator } from "@/lib/content/studio-mutate";
 import { callN8nGenerate, generateRequestSchema } from "@/lib/n8n/generate-client";
 import {
   ForbiddenProjectError,
@@ -29,10 +30,46 @@ export async function POST(req: NextRequest) {
     const ctx = await resolveProjectContext({
       requestedProjectId: req.headers.get("x-project-id"),
     });
-    requireProjectPermission(ctx, "content.edit");
 
     const body = await req.json();
     const validated = generateRequestSchema.parse(body);
+
+    if (validated.contentId) {
+      const row = await prisma.content.findUnique({
+        where: { id: validated.contentId },
+        include: {
+          approvals: {
+            where: { status: 'NEEDS_REVISION' },
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            include: { reviewer: { select: { name: true } } },
+          },
+        },
+      });
+      if (!row || row.projectId !== ctx.projectId) {
+        return NextResponse.json({ error: 'Content not found' }, { status: 404 });
+      }
+      assertStudioMutator({
+        userId: session.user.id,
+        role: ctx.role,
+        authorId: row.authorId,
+      });
+      validated.mode = 'rewrite';
+      validated.currentTitle = row.title;
+      validated.currentBody = row.body;
+      validated.reviewComment = row.approvals[0]?.comment ?? null;
+      if (row.campaignId) {
+        validated.campaignId = row.campaignId;
+      } else {
+        delete validated.campaignId;
+      }
+    } else {
+      requireProjectPermission(ctx, "content.edit");
+      validated.mode = 'create';
+      delete validated.currentTitle;
+      delete validated.currentBody;
+      delete validated.reviewComment;
+    }
 
     let campaign: { id: string; objective: string | null; thesis: string | null } | null =
       null;
