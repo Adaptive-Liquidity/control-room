@@ -421,7 +421,16 @@ HMAC uses `N8N_GENERATE_SECRET` (or `N8N_INGRESS_SECRET` if generate secret unse
   "channel": "TWITTER",
   "type": "TWITTER_THREAD",
   "prompt": "optional brief",
-  "titleHint": "optional"
+  "titleHint": "optional",
+  "contentId": "optional — when set, Control Room loads current draft + latest revision comment and sends mode=rewrite",
+  "mode": "create | rewrite (set server-side when contentId present)",
+  "currentTitle": "rewrite only — server-populated from Content row",
+  "currentBody": "rewrite only — server-populated from Content row",
+  "reviewComment": "rewrite only — latest NEEDS_REVISION approval comment or null",
+  "contextPack": { "company": {}, "project": {}, "campaign": {} },
+  "composedHash": "sha256 of composed context pack",
+  "projectId": "proj_aeon",
+  "campaignId": "optional"
 }
 ```
 
@@ -436,9 +445,24 @@ HMAC uses `N8N_GENERATE_SECRET` (or `N8N_INGRESS_SECRET` if generate secret unse
 }
 ```
 
-Recommended n8n pattern: **Webhook** (POST) → **Creator LLM** (reuse MKT-03 prompt/parser) → **Respond to Webhook** with JSON above. Register production URL in `N8N_GENERATE_WEBHOOK_URL`.
+`title` and `body` are required; `type` / `channel` are optional passthrough.
 
-Cloud workflow (stub — replace Code node with Creator LLM): `https://agentsea.app.n8n.cloud/webhook/aeon-studio-generate` (workflow `AEON Studio Generate`, id `58oYBY2ODlpRYhcc`).
+### Environment variables
+
+| Variable | Required | Notes |
+|---|---|---|
+| `N8N_GENERATE_WEBHOOK_URL` | Yes (for generate) | Production Respond webhook URL, e.g. `https://agentsea.app.n8n.cloud/webhook/aeon-studio-generate` |
+| `N8N_GENERATE_SECRET` | No | HMAC secret for outbound generate calls; falls back to `N8N_INGRESS_SECRET` when unset |
+
+Also documented in `.env.example`.
+
+### n8n workflow import
+
+Recommended pattern: **Webhook** (POST `aeon-studio-generate`, `responseMode: responseNode`) → **Build prompt** (context pack + create/rewrite fields) → **OpenAI** (`gpt-4o`, same credential as MKT-03) → **Parse JSON** → **Respond to Webhook** with `{ title, body }`.
+
+Export: `n8n/workflows/studio-generate.json`. **Re-import over** cloud workflow `AEON Studio Generate` (id `58oYBY2ODlpRYhcc`) — do **not** create a second workflow. Re-attach the `OpenAI account` credential after import. Restrict the webhook (n8n Header Auth or VPN); HMAC is verified by Control Room on the way **out**, not inside n8n.
+
+Production URL: `https://agentsea.app.n8n.cloud/webhook/aeon-studio-generate` (workflow `AEON Studio Generate`, id `58oYBY2ODlpRYhcc`). Register in `N8N_GENERATE_WEBHOOK_URL`.
 
 ---
 
