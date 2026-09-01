@@ -72,7 +72,12 @@ function StudioPageContent() {
   const searchParams = useSearchParams();
   const contentId = searchParams.get("id");
 
-  const { data: detail, isLoading: detailLoading } = useContent(contentId);
+  const {
+    data: detail,
+    isLoading: detailLoading,
+    isError: detailIsError,
+    error: detailError,
+  } = useContent(contentId);
   const createContent = useCreateContent();
   const updateContent = useUpdateContent();
   const submitContent = useSubmitContent();
@@ -95,7 +100,7 @@ function StudioPageContent() {
   const activeContentId = savedDraft?.contentId ?? contentId;
   const activeRevisionId =
     savedDraft?.revisionId ?? detail?.content.currentRevisionId ?? null;
-  const isHydrating = Boolean(contentId) && hydratedId !== contentId;
+  const isHydrating = Boolean(contentId) && hydratedId !== contentId && !detailIsError;
 
   function invalidateSavedDraft() {
     setSavedDraft((prev) =>
@@ -111,6 +116,10 @@ function StudioPageContent() {
       if (prev.contentId !== contentId) return null;
       return prev;
     });
+    setSelectedAssetId("");
+    setAltText("");
+    setAttachMessage(null);
+    setGuardianResult(null);
   }, [contentId]);
 
   useEffect(() => {
@@ -125,12 +134,16 @@ function StudioPageContent() {
         setHydratedId(null);
         setGuardianResult(null);
         setError(null);
+        setSelectedAssetId("");
+        setAltText("");
+        setAttachMessage(null);
       }
       return;
     }
     if (!detail?.content || hydratedId === contentId) return;
 
     const c = detail.content;
+    setGuardianResult(null);
     setTitle(c.title);
     setBody(c.body);
     if (TYPES.includes(c.type as (typeof TYPES)[number])) {
@@ -181,6 +194,7 @@ function StudioPageContent() {
       if (data.channel && CHANNELS.includes(data.channel as (typeof CHANNELS)[number])) {
         setChannel(data.channel as (typeof CHANNELS)[number]);
       }
+      setGuardianResult(null);
       invalidateSavedDraft();
       toast({
         title: "Draft generated",
@@ -228,6 +242,7 @@ function StudioPageContent() {
       if (data.channel && CHANNELS.includes(data.channel as (typeof CHANNELS)[number])) {
         setChannel(data.channel as (typeof CHANNELS)[number]);
       }
+      setGuardianResult(null);
       invalidateSavedDraft();
       toast({
         title: "Rewrite complete",
@@ -387,6 +402,12 @@ function StudioPageContent() {
       <div>
         {contentId && detailLoading && (
           <p className="mb-3 text-sm text-muted-foreground">Loading content…</p>
+        )}
+        {contentId && detailIsError && (
+          <p className="mb-3 text-sm text-destructive">
+            Failed to load content
+            {detailError instanceof Error ? `: ${detailError.message}` : ""}
+          </p>
         )}
 
         {revisionRequest?.comment && (

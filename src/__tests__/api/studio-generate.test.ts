@@ -386,20 +386,73 @@ describe('POST /api/studio/generate', () => {
 });
 
 describe('n8n studio-generate Parse JSON', () => {
+  function loadParseJs(): string {
+    const workflow = JSON.parse(
+      readFileSync(join(process.cwd(), 'n8n/workflows/studio-generate.json'), 'utf8')
+    ) as { nodes: Array<{ name: string; parameters?: { jsCode?: string; content?: string } }> };
+    const parse = workflow.nodes.find((n) => n.name === 'Parse JSON');
+    return parse?.parameters?.jsCode ?? '';
+  }
+
+  function runParse(item: unknown) {
+    const js = loadParseJs();
+    const fn = new Function('$input', js);
+    return fn({ first: () => ({ json: item }) }) as Array<{ json: { title: string; body: string } }>;
+  }
+
   it('throws on non-JSON instead of manufacturing a Draft', () => {
     const workflow = JSON.parse(
       readFileSync(join(process.cwd(), 'n8n/workflows/studio-generate.json'), 'utf8')
     ) as { nodes: Array<{ name: string; parameters?: { jsCode?: string; content?: string } }> };
     const note = workflow.nodes.find((n) => n.name === 'Security note');
-    const parse = workflow.nodes.find((n) => n.name === 'Parse JSON');
-    const js = parse?.parameters?.jsCode ?? '';
+    const js = loadParseJs();
     expect(js).toContain("throw new Error('Generate returned non-JSON')");
     expect(js).toContain("typeof parsed.title !== 'string'");
+    expect(js).toContain("typeof parsed.body !== 'string'");
+    expect(js).toContain('Array.isArray(item.output)');
+    expect(js).toContain('part.output_text');
     expect(js).not.toContain("title: 'Draft'");
     expect(js).not.toContain('String(parsed.title)');
     const noteText = (note?.parameters as { content?: string } | undefined)?.content ?? '';
     expect(noteText).toContain('N8N_GENERATE_SECRET');
     expect(noteText).toContain('do **not** reuse `N8N_INGRESS_SECRET`');
     expect(noteText).not.toContain('if generate secret is unset');
+  });
+
+  it('parses simplified OpenAI Responses output arrays', () => {
+    expect(
+      runParse({
+        output: [
+          {
+            type: 'message',
+            role: 'assistant',
+            content: [
+              { type: 'output_text', output_text: '{"title":"Thread","body":"Ship the desk."}' },
+            ],
+          },
+        ],
+      })
+    ).toEqual([{ json: { title: 'Thread', body: 'Ship the desk.' } }]);
+
+    expect(
+      runParse({
+        output: [
+          {
+            content: [{ type: 'output_text', text: '{"title":"Alt","body":"Text field."}' }],
+          },
+        ],
+      })
+    ).toEqual([{ json: { title: 'Alt', body: 'Text field.' } }]);
+  });
+
+  it('still parses string output and requires string choices content', () => {
+    expect(runParse({ output: '{"title":"Plain","body":"String output."}' })).toEqual([
+      { json: { title: 'Plain', body: 'String output.' } },
+    ]);
+    expect(() =>
+      runParse({
+        choices: [{ message: { content: [{ type: 'text', text: '{"title":"No","body":"Array"}' }] } }],
+      })
+    ).toThrow('Generate returned invalid shape (expected title + body)');
   });
 });
