@@ -232,8 +232,26 @@ export class ContentService {
       }
     }
 
+    const updateData: Prisma.ContentUpdateInput = {
+      ...(data.status !== undefined ? { status: data.status } : {}),
+      ...(data.scheduledAt !== undefined ? { scheduledAt: data.scheduledAt } : {}),
+      ...(data.campaignId !== undefined
+        ? data.campaignId === null
+          ? { campaign: { disconnect: true } }
+          : { campaign: { connect: { id: data.campaignId } } }
+        : {}),
+    };
+
+    const include = {
+      author: true,
+      approvals: { include: { reviewer: true } },
+      campaign: true,
+    };
+
+    let updated;
     if (contentFieldsChanged) {
-      await prisma.$transaction(async (tx) => {
+      updated = await prisma.$transaction(async (tx) => {
+        const scopedTx = scopedPrisma(projectId, tx);
         const { guardianResult } = await this.createRevision(
           id,
           {
@@ -249,38 +267,42 @@ export class ContentService {
         if (guardianResult.result === 'BLOCK') {
           throw new ValidationServiceError('Guardian BLOCK; revision not saved');
         }
+
+        const row = await scopedTx.content.update({
+          where: { id },
+          data: updateData,
+          include,
+        });
+
+        await scopedTx.activityLog.create({
+          data: {
+            userId,
+            projectId,
+            type: 'CONTENT_UPDATED',
+            description: `Updated content: "${row.title}"`,
+            metadata: { contentId: id },
+          },
+        });
+
+        return row;
+      });
+    } else {
+      updated = await db.content.update({
+        where: { id },
+        data: updateData,
+        include,
+      });
+
+      await db.activityLog.create({
+        data: {
+          userId,
+          projectId,
+          type: 'CONTENT_UPDATED',
+          description: `Updated content: "${updated.title}"`,
+          metadata: { contentId: id },
+        },
       });
     }
-
-    const updateData: Prisma.ContentUpdateInput = {
-      ...(data.status !== undefined ? { status: data.status } : {}),
-      ...(data.scheduledAt !== undefined ? { scheduledAt: data.scheduledAt } : {}),
-      ...(data.campaignId !== undefined
-        ? data.campaignId === null
-          ? { campaign: { disconnect: true } }
-          : { campaign: { connect: { id: data.campaignId } } }
-        : {}),
-    };
-
-    const updated = await db.content.update({
-      where: { id },
-      data: updateData,
-      include: {
-        author: true,
-        approvals: { include: { reviewer: true } },
-        campaign: true,
-      },
-    });
-
-    await db.activityLog.create({
-      data: {
-        userId,
-        projectId,
-        type: 'CONTENT_UPDATED',
-        description: `Updated content: "${updated.title}"`,
-        metadata: { contentId: id },
-      },
-    });
 
     await emitContentUpdated({
       contentId: updated.id,
