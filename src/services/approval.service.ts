@@ -20,6 +20,10 @@ import {
 
 export type ApprovalDecision = 'APPROVED' | 'REJECTED' | 'REVISION_REQUESTED';
 
+export function shouldEnqueueN8nResume(decision: ApprovalDecision): boolean {
+  return decision === 'APPROVED' || decision === 'REJECTED';
+}
+
 export class ApprovalService {
   async decide(opts: {
     session: Session;
@@ -158,7 +162,7 @@ export class ApprovalService {
 
       let createdOutboxId: string | null = null;
       const bridgeJob = existing.bridgeJobs[0];
-      if (existing.origin === 'N8N' && bridgeJob) {
+      if (existing.origin === 'N8N' && bridgeJob && shouldEnqueueN8nResume(opts.decision)) {
         const resume: N8nResumePayload = {
           schemaVersion: '1',
           decision: opts.decision,
