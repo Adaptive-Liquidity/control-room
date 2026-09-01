@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -18,7 +18,12 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
-import { useCreateContent } from "@/hooks/useContent";
+import {
+  useContent,
+  useCreateContent,
+  useSubmitContent,
+  useUpdateContent,
+} from "@/hooks/useContent";
 
 const CHANNELS = ["TWITTER", "LINKEDIN", "DISCORD", "EMAIL", "BLOG"] as const;
 const TYPES = [
@@ -50,6 +55,11 @@ interface SavedDraft {
   revisionId: string;
 }
 
+interface CampaignListItem {
+  id: string;
+  name: string;
+}
+
 function apiErrorMessage(err: unknown): string {
   if (!(err instanceof Error)) return "Save failed";
   const status = (err as Error & { status?: number }).status;
@@ -57,27 +67,67 @@ function apiErrorMessage(err: unknown): string {
   return err.message;
 }
 
-export default function StudioPage() {
+function StudioPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const contentId = searchParams.get("id");
+
+  const { data: detail, isLoading: detailLoading } = useContent(contentId);
   const createContent = useCreateContent();
+  const updateContent = useUpdateContent(contentId ?? "");
+  const submitContent = useSubmitContent();
 
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [channel, setChannel] = useState<(typeof CHANNELS)[number]>("TWITTER");
   const [type, setType] = useState<(typeof TYPES)[number]>("TWITTER_THREAD");
+  const [campaignId, setCampaignId] = useState("none");
   const [generatePrompt, setGeneratePrompt] = useState("");
   const [guardianResult, setGuardianResult] = useState<GuardianResult | null>(null);
   const [isChecking, setIsChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedDraft, setSavedDraft] = useState<SavedDraft | null>(null);
+  const [hydratedId, setHydratedId] = useState<string | null>(null);
   const [selectedAssetId, setSelectedAssetId] = useState("");
   const [altText, setAltText] = useState("");
   const [attachMessage, setAttachMessage] = useState<string | null>(null);
+
+  const activeContentId = savedDraft?.contentId ?? contentId;
+  const activeRevisionId =
+    savedDraft?.revisionId ?? detail?.content.currentRevisionId ?? null;
 
   function invalidateSavedDraft() {
     setSavedDraft(null);
     setAttachMessage(null);
   }
+
+  useEffect(() => {
+    if (!contentId || !detail?.content || hydratedId === contentId) return;
+
+    const c = detail.content;
+    setTitle(c.title);
+    setBody(c.body);
+    if (TYPES.includes(c.type as (typeof TYPES)[number])) {
+      setType(c.type as (typeof TYPES)[number]);
+    }
+    if (CHANNELS.includes(c.channel as (typeof CHANNELS)[number])) {
+      setChannel(c.channel as (typeof CHANNELS)[number]);
+    }
+    setCampaignId(c.campaignId ?? "none");
+    if (c.id && c.currentRevisionId) {
+      setSavedDraft({ contentId: c.id, revisionId: c.currentRevisionId });
+    }
+    setHydratedId(contentId);
+  }, [contentId, detail, hydratedId]);
+
+  const { data: campaigns } = useQuery<{ items: CampaignListItem[] }>({
+    queryKey: ["campaigns", "studio"],
+    queryFn: async () => {
+      const res = await fetch("/api/campaigns?limit=50");
+      if (!res.ok) throw new Error("Failed to load campaigns");
+      return res.json();
+    },
+  });
 
   const generate = useMutation({
     mutationFn: async () => {
@@ -118,9 +168,59 @@ export default function StudioPage() {
     },
   });
 
+  const rewrite = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/studio/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channel,
+          type,
+          contentId,
+          mode: "rewrite",
+          prompt: generatePrompt.trim() || undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err = new Error(data.error || `Rewrite failed (${res.status})`) as Error & {
+          status?: number;
+        };
+        err.status = res.status;
+        throw err;
+      }
+      return data as { title: string; body: string; type?: string; channel?: string };
+    },
+    onSuccess: (data) => {
+      setTitle(data.title);
+      setBody(data.body);
+      if (data.type && TYPES.includes(data.type as (typeof TYPES)[number])) {
+        setType(data.type as (typeof TYPES)[number]);
+      }
+      if (data.channel && CHANNELS.includes(data.channel as (typeof CHANNELS)[number])) {
+        setChannel(data.channel as (typeof CHANNELS)[number]);
+      }
+      invalidateSavedDraft();
+      toast({
+        title: "Rewrite complete",
+        description: "Review the updated draft before saving or submitting.",
+        variant: "success",
+      });
+    },
+    onError: (e) => {
+      const msg = e instanceof Error ? e.message : "Rewrite failed";
+      const status = (e as Error & { status?: number }).status;
+      toast({
+        title: status === 503 ? "Rewrite unavailable" : "Rewrite failed",
+        description: msg,
+        variant: "destructive",
+      });
+    },
+  });
+
   const { data: assets } = useQuery<{ items: AssetRow[] }>({
     queryKey: ["assets", "studio"],
-    enabled: Boolean(savedDraft),
+    enabled: Boolean(activeContentId && activeRevisionId),
     queryFn: async () => {
       const res = await fetch("/api/assets?limit=50");
       if (!res.ok) throw new Error("Failed to load assets");
@@ -130,12 +230,12 @@ export default function StudioPage() {
 
   const attach = useMutation({
     mutationFn: async () => {
-      if (!savedDraft) throw new Error("Save the draft before attaching assets");
+      if (!activeRevisionId) throw new Error("Save the draft before attaching assets");
       const res = await fetch("/api/assets/attach", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contentRevisionId: savedDraft.revisionId,
+          contentRevisionId: activeRevisionId,
           assetId: selectedAssetId,
           ...(altText.trim() ? { altText: altText.trim() } : {}),
         }),
@@ -173,31 +273,69 @@ export default function StudioPage() {
     setIsChecking(false);
   };
 
+  const isBusy =
+    createContent.isPending || updateContent.isPending || submitContent.isPending;
+
   const save = async (status: "DRAFT" | "PENDING_REVIEW") => {
     setError(null);
     if (!title.trim() || !body.trim()) {
       setError("Title and body are required");
       return;
     }
+
+    const fields = {
+      title: title.trim(),
+      body,
+      type,
+      channel,
+      campaignId: campaignId === "none" ? null : campaignId,
+    };
+
     try {
-      const content = await createContent.mutateAsync({
-        title: title.trim(),
-        body,
-        type,
-        channel,
-        status,
-      });
-      if (content?.id && content?.currentRevisionId) {
-        setSavedDraft({ contentId: content.id, revisionId: content.currentRevisionId });
-        setAttachMessage(null);
-      }
-      toast({
-        title: status === "DRAFT" ? "Draft saved" : "Submitted for approval",
-        description: content.id,
-        variant: "success",
-      });
-      if (status === "PENDING_REVIEW") {
-        router.push("/queue");
+      if (contentId) {
+        const updated = await updateContent.mutateAsync(fields);
+        if (updated?.id && updated?.currentRevisionId) {
+          setSavedDraft({ contentId: updated.id, revisionId: updated.currentRevisionId });
+          setAttachMessage(null);
+        }
+        if (status === "PENDING_REVIEW") {
+          await submitContent.mutateAsync(contentId);
+          toast({
+            title: "Submitted for approval",
+            description: contentId,
+            variant: "success",
+          });
+          router.push("/queue");
+        } else {
+          toast({
+            title: "Draft saved",
+            description: contentId,
+            variant: "success",
+          });
+        }
+      } else {
+        const content = await createContent.mutateAsync({
+          title: fields.title,
+          body: fields.body,
+          type: fields.type,
+          channel: fields.channel,
+          ...(campaignId !== "none" ? { campaignId } : {}),
+          status,
+        });
+        if (content?.id && content?.currentRevisionId) {
+          setSavedDraft({ contentId: content.id, revisionId: content.currentRevisionId });
+          setAttachMessage(null);
+        }
+        toast({
+          title: status === "DRAFT" ? "Draft saved" : "Submitted for approval",
+          description: content.id,
+          variant: "success",
+        });
+        if (status === "DRAFT") {
+          router.replace(`/studio?id=${content.id}`);
+        } else {
+          router.push("/queue");
+        }
       }
     } catch (e) {
       const msg = apiErrorMessage(e);
@@ -206,9 +344,27 @@ export default function StudioPage() {
     }
   };
 
+  const revisionRequest = detail?.revisionRequest ?? null;
+
   return (
     <div className="grid animate-fade-in grid-cols-1 gap-5 xl:grid-cols-[1fr_380px]">
       <div>
+        {contentId && detailLoading && (
+          <p className="mb-3 text-sm text-muted-foreground">Loading content…</p>
+        )}
+
+        {revisionRequest?.comment && (
+          <div className="mb-4 rounded-md border border-warning/40 bg-warning/10 px-4 py-3 text-sm">
+            <p className="font-medium text-foreground">Revision requested</p>
+            <p className="mt-1 text-muted-foreground">{revisionRequest.comment}</p>
+            {revisionRequest.reviewerName && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                — {revisionRequest.reviewerName}
+              </p>
+            )}
+          </div>
+        )}
+
         <Card className="overflow-hidden">
           <div className="border-b border-border bg-secondary/30 px-4 py-2 text-xs text-muted-foreground">
             Plain-text editor — rich formatting toolbar disabled until markdown support ships.
@@ -259,6 +415,19 @@ export default function StudioPage() {
                   ))}
                 </SelectContent>
               </Select>
+              <Select value={campaignId} onValueChange={setCampaignId}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="Campaign" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No campaign</SelectItem>
+                  {(campaigns?.items ?? []).map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
               <Textarea
@@ -267,15 +436,28 @@ export default function StudioPage() {
                 onChange={(e) => setGeneratePrompt(e.target.value)}
                 className="min-h-[60px] flex-1"
               />
-              <Button
-                variant="outline"
-                disabled={generate.isPending}
-                onClick={() => generate.mutate()}
-                className="w-full shrink-0 sm:w-auto"
-              >
-                <Sparkles className="mr-1.5 h-4 w-4" />
-                {generate.isPending ? "Generating…" : "Generate with AI"}
-              </Button>
+              <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto">
+                <Button
+                  variant="outline"
+                  disabled={generate.isPending}
+                  onClick={() => generate.mutate()}
+                  className="w-full sm:w-auto"
+                >
+                  <Sparkles className="mr-1.5 h-4 w-4" />
+                  {generate.isPending ? "Generating…" : "Generate with AI"}
+                </Button>
+                {contentId && (
+                  <Button
+                    variant="outline"
+                    disabled={rewrite.isPending}
+                    onClick={() => rewrite.mutate()}
+                    className="w-full sm:w-auto"
+                  >
+                    <Sparkles className="mr-1.5 h-4 w-4" />
+                    {rewrite.isPending ? "Rewriting…" : "Rewrite with agent"}
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
           <Textarea
@@ -292,7 +474,7 @@ export default function StudioPage() {
           {error && <p className="mr-auto text-xs text-destructive">{error}</p>}
           <Button
             variant="outline"
-            disabled={createContent.isPending}
+            disabled={isBusy}
             onClick={() => void save("DRAFT")}
             className="w-full sm:w-auto"
           >
@@ -307,7 +489,7 @@ export default function StudioPage() {
             {isChecking ? "Checking..." : "Run Guardian Check"}
           </Button>
           <Button
-            disabled={createContent.isPending}
+            disabled={isBusy}
             onClick={() => void save("PENDING_REVIEW")}
             className="w-full sm:w-auto"
           >
@@ -383,14 +565,14 @@ export default function StudioPage() {
             <CardTitle>Assets</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-xs text-muted-foreground">
-            {!savedDraft ? (
+            {!activeContentId || !activeRevisionId ? (
               <p>
                 Upload via Library (signed GCS URL). Save a draft first — assets attach to a content
                 revision.
               </p>
             ) : (
               <div className="space-y-2">
-                <p className="font-mono text-[11px]">revision {savedDraft.revisionId}</p>
+                <p className="font-mono text-[11px]">revision {activeRevisionId}</p>
                 <Select value={selectedAssetId} onValueChange={setSelectedAssetId}>
                   <SelectTrigger aria-label="Asset to attach">
                     <SelectValue placeholder="Select an asset…" />
@@ -432,5 +614,13 @@ export default function StudioPage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+export default function StudioPage() {
+  return (
+    <Suspense fallback={<div className="text-sm text-muted-foreground">Loading…</div>}>
+      <StudioPageContent />
+    </Suspense>
   );
 }

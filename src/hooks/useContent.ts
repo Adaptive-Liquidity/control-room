@@ -66,6 +66,16 @@ export interface ContentDetail {
     checks: Record<string, boolean> | null;
     flags: unknown;
   } | null;
+  assets?: Array<{
+    id: string;
+    altText: string | null;
+    asset: { id: string; originalFilename: string; mimeType: string };
+  }>;
+  revisionRequest?: {
+    comment: string | null;
+    reviewerName: string | null;
+    createdAt: string;
+  } | null;
 }
 
 export interface CreateContentInput {
@@ -115,6 +125,47 @@ export function useCreateContent() {
       return res.json();
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['queue'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+  });
+}
+
+export function useUpdateContent(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      title?: string;
+      body?: string;
+      type?: string;
+      channel?: string;
+      campaignId?: string | null;
+    }) => {
+      const res = await fetch(`/api/content/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      if (!res.ok) throw await parseApiError(res);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['content', id] });
+      queryClient.invalidateQueries({ queryKey: ['queue'] });
+    },
+  });
+}
+
+export function useSubmitContent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/content/${id}/submit`, { method: 'POST' });
+      if (!res.ok) throw await parseApiError(res);
+      return res.json();
+    },
+    onSuccess: (_data, id) => {
+      queryClient.invalidateQueries({ queryKey: ['content', id] });
       queryClient.invalidateQueries({ queryKey: ['queue'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
     },
