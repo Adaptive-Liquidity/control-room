@@ -10,6 +10,7 @@ import {
   emitContentUpdated,
 } from '@/lib/pusher/server';
 import {
+  STUDIO_EDITABLE_STATUSES,
   assertStudioMutator,
   isStudioEditableStatus,
 } from '@/lib/content/studio-mutate';
@@ -28,6 +29,22 @@ export class ValidationServiceError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'ValidationServiceError';
+  }
+}
+
+export class NotFoundError extends Error {
+  statusCode = 404;
+  constructor(message: string) {
+    super(message);
+    this.name = 'NotFoundError';
+  }
+}
+
+export class BadRequestError extends Error {
+  statusCode = 400;
+  constructor(message: string) {
+    super(message);
+    this.name = 'BadRequestError';
   }
 }
 
@@ -152,6 +169,11 @@ export class ContentService {
         tx
       );
 
+      const status = data.status ?? 'PENDING_REVIEW';
+      if (guardianResult.result === 'BLOCK' && status === 'PENDING_REVIEW') {
+        throw new ValidationServiceError('Guardian BLOCK; revision not saved');
+      }
+
       await tx.activityLog.create({
         data: {
           userId: data.authorId,
@@ -205,22 +227,40 @@ export class ContentService {
   ) {
     const db = scopedPrisma(projectId, prisma);
     const content = await db.content.findUnique({ where: { id } });
-    if (!content) throw new Error('Content not found');
+    if (!content) throw new NotFoundError('Content not found');
 
-    const contentFieldsChanged =
+    const contentFieldsSupplied =
       data.title !== undefined ||
       data.body !== undefined ||
       data.type !== undefined ||
       data.channel !== undefined;
+    const attemptingContentWrite = contentFieldsSupplied || data.campaignId !== undefined;
 
     if (mutator) {
       assertStudioMutator({ userId, role: mutator.role, authorId: content.authorId });
-      if (!isStudioEditableStatus(content.status)) {
-        throw new ConflictError(
-          `Cannot edit content in status ${content.status}; must be DRAFT, REVISION_REQUESTED, or REJECTED`
-        );
-      }
     }
+    if (attemptingContentWrite && !isStudioEditableStatus(content.status)) {
+      throw new ConflictError(
+        `Cannot edit content in status ${content.status}; must be DRAFT, REVISION_REQUESTED, or REJECTED`
+      );
+    }
+
+    if (data.title !== undefined && !data.title.trim()) {
+      throw new BadRequestError('Title and body are required');
+    }
+    if (data.body !== undefined && !data.body.trim()) {
+      throw new BadRequestError('Title and body are required');
+    }
+
+    const nextTitle = data.title !== undefined ? data.title.trim() : content.title;
+    const nextBody = data.body !== undefined ? data.body.trim() : content.body;
+    const nextType = data.type ?? content.type;
+    const nextChannel = data.channel ?? content.channel;
+    const revisionNeeded =
+      (data.title !== undefined && nextTitle !== content.title) ||
+      (data.body !== undefined && nextBody !== content.body) ||
+      (data.type !== undefined && data.type !== content.type) ||
+      (data.channel !== undefined && data.channel !== content.channel);
 
     if (data.campaignId) {
       const campaign = await db.campaign.findUnique({
@@ -249,16 +289,22 @@ export class ContentService {
     };
 
     let updated;
-    if (contentFieldsChanged) {
+    if (revisionNeeded) {
       updated = await prisma.$transaction(async (tx) => {
         const scopedTx = scopedPrisma(projectId, tx);
+        const locked = await scopedTx.content.findUnique({ where: { id } });
+        if (!locked || !isStudioEditableStatus(locked.status)) {
+          throw new ConflictError(
+            `Cannot edit content in status ${locked?.status ?? 'UNKNOWN'}; must be DRAFT, REVISION_REQUESTED, or REJECTED`
+          );
+        }
         const { guardianResult } = await this.createRevision(
           id,
           {
-            title: data.title ?? content.title,
-            body: data.body ?? content.body,
-            type: data.type ?? content.type,
-            channel: data.channel ?? content.channel,
+            title: nextTitle,
+            body: nextBody,
+            type: nextType,
+            channel: nextChannel,
           },
           userId,
           projectId,
@@ -325,10 +371,7 @@ export class ContentService {
       );
     }
     if (!content.title.trim() || !content.body.trim()) {
-      const err = new Error('Title and body are required') as Error & { statusCode: number };
-      err.statusCode = 400;
-      err.name = 'BadRequestError';
-      throw err;
+      throw new BadRequestError('Title and body are required');
     }
     if (content.currentRevisionId) {
       const revision = await prisma.contentRevision.findUnique({
@@ -340,15 +383,22 @@ export class ContentService {
       }
     }
     const previousStatus = content.status;
-    const updated = await db.content.update({
-      where: { id },
+    const moved = await db.content.updateMany({
+      where: { id, status: { in: [...STUDIO_EDITABLE_STATUSES] } },
       data: { status: 'PENDING_REVIEW' },
+    });
+    if (moved.count === 0) {
+      throw new ConflictError(`Cannot submit content in status ${content.status}`);
+    }
+    const updated = await db.content.findUnique({
+      where: { id },
       include: {
         author: true,
         approvals: { include: { reviewer: true } },
         campaign: true,
       },
     });
+    if (!updated) throw new NotFoundError('Content not found');
     await db.activityLog.create({
       data: {
         userId,

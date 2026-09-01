@@ -58,11 +58,17 @@ export async function POST(req: NextRequest) {
       validated.currentTitle = row.title;
       validated.currentBody = row.body;
       validated.reviewComment = row.approvals[0]?.comment ?? null;
-      if (!validated.campaignId && row.campaignId) {
+      if (row.campaignId) {
         validated.campaignId = row.campaignId;
+      } else {
+        delete validated.campaignId;
       }
     } else {
       requireProjectPermission(ctx, "content.edit");
+      validated.mode = 'create';
+      delete validated.currentTitle;
+      delete validated.currentBody;
+      delete validated.reviewComment;
     }
 
     let campaign: { id: string; objective: string | null; thesis: string | null } | null =

@@ -34,11 +34,15 @@ jest.mock('@/lib/pusher/server', () => ({
 
 import { getServerSession } from 'next-auth';
 import { NextRequest } from 'next/server';
-import { GET, PATCH } from '@/app/api/content/[id]/route';
+import { PATCH } from '@/app/api/content/[id]/route';
 import { POST as submitPost } from '@/app/api/content/[id]/submit/route';
 import { contentService } from '@/services/content.service';
 import { ForbiddenError } from '@/lib/rbac';
-import { ConflictError, ValidationServiceError } from '@/services/content.service';
+import {
+  ConflictError,
+  NotFoundError,
+  ValidationServiceError,
+} from '@/services/content.service';
 import { session } from '../helpers/n8n';
 
 describe('content desk routes', () => {
@@ -90,6 +94,54 @@ describe('content desk routes', () => {
       { params: { id: 'c1' } }
     );
     expect(res.status).toBe(422);
+  });
+
+  it('PATCH returns 400 for whitespace title', async () => {
+    (getServerSession as jest.Mock).mockResolvedValue(session('EDITOR', 'ed-1'));
+    const spy = jest.spyOn(contentService, 'update');
+    const res = await PATCH(
+      new NextRequest('http://localhost/api/content/c1', {
+        method: 'PATCH',
+        body: JSON.stringify({ title: '   ' }),
+        headers: { 'content-type': 'application/json' },
+      }),
+      { params: { id: 'c1' } }
+    );
+    expect(res.status).toBe(400);
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it('PATCH returns 400 for empty campaignId', async () => {
+    (getServerSession as jest.Mock).mockResolvedValue(session('EDITOR', 'ed-1'));
+    const spy = jest.spyOn(contentService, 'update');
+    const res = await PATCH(
+      new NextRequest('http://localhost/api/content/c1', {
+        method: 'PATCH',
+        body: JSON.stringify({ campaignId: '' }),
+        headers: { 'content-type': 'application/json' },
+      }),
+      { params: { id: 'c1' } }
+    );
+    expect(res.status).toBe(400);
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it('PATCH returns 404 when content is missing', async () => {
+    (getServerSession as jest.Mock).mockResolvedValue(session('EDITOR', 'ed-1'));
+    jest.spyOn(contentService, 'update').mockRejectedValueOnce(
+      new NotFoundError('Content not found')
+    );
+    const res = await PATCH(
+      new NextRequest('http://localhost/api/content/c1', {
+        method: 'PATCH',
+        body: JSON.stringify({ title: 'Hi' }),
+        headers: { 'content-type': 'application/json' },
+      }),
+      { params: { id: 'c1' } }
+    );
+    expect(res.status).toBe(404);
   });
 
   it('submit moves REVISION_REQUESTED to PENDING_REVIEW', async () => {

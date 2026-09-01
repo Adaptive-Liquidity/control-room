@@ -23,6 +23,7 @@ import {
 } from "@/hooks/useQueue";
 import { useContent } from "@/hooks/useContent";
 import { cn } from "@/lib/utils";
+import { canStudioMutate } from "@/lib/content/studio-mutate";
 
 const CHANNEL_LABELS: Record<string, string> = {
   TWITTER: "X",
@@ -141,8 +142,12 @@ export default function QueuePage() {
 
   const canEditStudio = Boolean(
     selectedSummary &&
-      (selectedSummary.author.id === session?.user?.id ||
-        APPROVE_ROLES.has(session?.user?.role ?? ""))
+      session?.user?.id &&
+      canStudioMutate({
+        userId: session.user.id,
+        role: session.user.role ?? "",
+        authorId: selectedSummary.author.id,
+      })
   );
 
   useEffect(() => {
@@ -525,15 +530,20 @@ export default function QueuePage() {
                 {canApprove && (
                   <div className="space-y-3">
                     <Input
+                      aria-label="Approve with title edit"
                       value={approveTitle}
                       onChange={(e) => setApproveTitle(e.target.value)}
                       placeholder="Approve with title edit (optional)"
                     />
                     <div>
-                      <label className="mb-1 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground sm:text-[11px]">
+                      <label
+                        htmlFor="approve-body"
+                        className="mb-1 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground sm:text-[11px]"
+                      >
                         Approve with body edit (optional)
                       </label>
                       <Textarea
+                        id="approve-body"
                         className="min-h-[72px]"
                         value={approveBody}
                         onChange={(e) => setApproveBody(e.target.value)}

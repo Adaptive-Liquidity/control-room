@@ -16,8 +16,8 @@ import {
 import { z } from 'zod';
 
 const createSchema = z.object({
-  title: z.string().min(1).max(200),
-  body: z.string().min(1).max(50000),
+  title: z.string().trim().min(1).max(200),
+  body: z.string().trim().min(1).max(50000),
   type: z.enum([
     'TWITTER_THREAD',
     'BLOG_POST',
@@ -29,7 +29,7 @@ const createSchema = z.object({
     'DISCORD_MESSAGE',
   ]),
   channel: z.enum(['TWITTER', 'LINKEDIN', 'DISCORD', 'EMAIL', 'BLOG']),
-  campaignId: z.string().optional(),
+  campaignId: z.string().min(1).optional(),
   status: z.enum(['DRAFT', 'PENDING_REVIEW']).optional(),
 });
 

@@ -9,7 +9,9 @@ import {
   resolveProjectContext,
 } from '@/lib/project/context';
 import {
+  BadRequestError,
   ConflictError,
+  NotFoundError,
   ValidationServiceError,
   contentService,
 } from '@/services/content.service';
@@ -41,13 +43,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (error instanceof ValidationServiceError) {
       return NextResponse.json({ error: error.message }, { status: error.statusCode });
     }
-    if (
-      error instanceof Error &&
-      error.name === 'BadRequestError' &&
-      'statusCode' in error &&
-      (error as Error & { statusCode: number }).statusCode === 400
-    ) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+    if (error instanceof NotFoundError || error instanceof BadRequestError) {
+      return NextResponse.json({ error: error.message }, { status: error.statusCode });
     }
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: 'Validation error', details: error.errors }, { status: 400 });

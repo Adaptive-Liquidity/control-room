@@ -10,18 +10,20 @@ import {
   resolveProjectContext,
 } from '@/lib/project/context';
 import {
+  BadRequestError,
   ConflictError,
+  NotFoundError,
   ValidationServiceError,
   contentService,
 } from '@/services/content.service';
 
 const patchSchema = z
   .object({
-    title: z.string().min(1).max(200).optional(),
-    body: z.string().min(1).max(50000).optional(),
+    title: z.string().trim().min(1).max(200).optional(),
+    body: z.string().trim().min(1).max(50000).optional(),
     type: contentTypeSchema.optional(),
     channel: channelSchema.optional(),
-    campaignId: z.string().nullable().optional(),
+    campaignId: z.string().min(1).nullable().optional(),
   })
   .refine((v) => Object.values(v).some((x) => x !== undefined), {
     message: 'At least one field is required',
@@ -80,6 +82,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       return NextResponse.json({ error: error.message }, { status: error.statusCode });
     }
     if (error instanceof ValidationServiceError) {
+      return NextResponse.json({ error: error.message }, { status: error.statusCode });
+    }
+    if (error instanceof NotFoundError || error instanceof BadRequestError) {
       return NextResponse.json({ error: error.message }, { status: error.statusCode });
     }
     if (error instanceof z.ZodError) {

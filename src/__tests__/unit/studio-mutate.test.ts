@@ -1,6 +1,7 @@
 import {
   STUDIO_EDITABLE_STATUSES,
   assertStudioMutator,
+  canStudioMutate,
   isStudioEditableStatus,
 } from '@/lib/content/studio-mutate';
 import { ForbiddenError } from '@/lib/rbac';
@@ -32,5 +33,11 @@ describe('studio-mutate', () => {
     expect(() =>
       assertStudioMutator({ userId: 'ed-2', role: 'EDITOR', authorId: 'ed-1' })
     ).toThrow(ForbiddenError);
+  });
+
+  it('does not treat VIEWER or SERVICE authors as studio mutators', () => {
+    expect(canStudioMutate({ userId: 'v-1', role: 'VIEWER', authorId: 'v-1' })).toBe(false);
+    expect(canStudioMutate({ userId: 'svc-1', role: 'SERVICE', authorId: 'svc-1' })).toBe(false);
+    expect(canStudioMutate({ userId: 'ed-1', role: 'EDITOR', authorId: 'ed-1' })).toBe(true);
   });
 });

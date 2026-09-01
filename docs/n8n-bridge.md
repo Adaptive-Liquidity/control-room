@@ -458,7 +458,7 @@ Also documented in `.env.example`.
 
 ### n8n workflow import
 
-Recommended pattern: **Webhook** (POST `aeon-studio-generate`, Header Auth, `responseMode: responseNode`) → **Build prompt** (context pack + create/rewrite fields) → **OpenAI** (`gpt-4o`, same credential as MKT-03) → **Parse JSON** → **Respond to Webhook** with `{ title, body }`.
+Recommended pattern: **Webhook** (POST `aeon-studio-generate`, Header Auth, `responseMode: responseNode`) → **Build prompt** (context pack + create/rewrite fields) → **OpenAI** (`gpt-4o`, same credential as MKT-03) → **Parse JSON** → **Respond to Webhook** with `{ title, body }`. Parse JSON throws on non-JSON or missing `title`/`body` so Control Room toasts a generate failure and leaves the editor unchanged. Re-import over `58oYBY2ODlpRYhcc`.
 
 Export: `n8n/workflows/studio-generate.json`. **Re-import over** cloud workflow `AEON Studio Generate` (id `58oYBY2ODlpRYhcc`) — do **not** create a second workflow. After import, attach:
 
