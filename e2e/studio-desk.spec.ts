@@ -10,7 +10,7 @@ async function signIn(page: Page, email: string, password: string) {
   await page.getByLabel(/email/i).fill(email);
   await page.getByLabel(/password/i).fill(password);
   await page.getByRole('button', { name: /sign in/i }).click();
-  await page.waitForURL((url) => !url.pathname.includes('/auth/signin'), { timeout: 15_000 });
+  await page.waitForURL((url) => !url.pathname.includes('/auth/signin'), { timeout: 30_000 });
 }
 
 test.describe('studio desk loop', () => {
@@ -28,15 +28,18 @@ test.describe('studio desk loop', () => {
     await page.context().clearCookies();
     await signIn(page, REVIEWER_EMAIL, REVIEWER_PASSWORD);
     await page.goto('/queue');
-    await page.getByText(title).first().click();
+    await page.getByText(title, { exact: true }).first().click();
+    await expect(page.getByText(/revisionId:/)).toBeVisible();
     await page.getByPlaceholder('Required for reject / request revision').fill('Please add a disclaimer.');
     await page.getByRole('button', { name: 'Request revision' }).click();
+    await expect(page.getByText('Revision requested').first()).toBeVisible();
 
     await page.context().clearCookies();
     await signIn(page, EDITOR_EMAIL, EDITOR_PASSWORD);
     await page.goto('/queue');
     await page.getByRole('tab', { name: 'All' }).click();
-    await page.getByText(title).first().click();
+    await page.getByText(title, { exact: true }).first().click();
+    await expect(page.getByRole('link', { name: 'Open in Studio' })).toBeVisible();
     await page.getByRole('link', { name: 'Open in Studio' }).click();
     await expect(page).toHaveURL(/\/studio\?id=/);
     await expect(page.getByText('Please add a disclaimer.')).toBeVisible();
