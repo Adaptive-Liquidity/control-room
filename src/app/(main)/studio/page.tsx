@@ -155,6 +155,7 @@ function StudioPageContent() {
           type,
           ...(generatePrompt.trim() ? { prompt: generatePrompt.trim() } : {}),
           ...(title.trim() ? { titleHint: title.trim() } : {}),
+          ...(campaignId !== "none" ? { campaignId } : {}),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -195,6 +196,7 @@ function StudioPageContent() {
           contentId,
           mode: "rewrite",
           prompt: generatePrompt.trim() || undefined,
+          ...(campaignId !== "none" ? { campaignId } : {}),
         }),
       });
       const data = await res.json().catch(() => ({}));

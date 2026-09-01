@@ -458,9 +458,14 @@ Also documented in `.env.example`.
 
 ### n8n workflow import
 
-Recommended pattern: **Webhook** (POST `aeon-studio-generate`, `responseMode: responseNode`) → **Build prompt** (context pack + create/rewrite fields) → **OpenAI** (`gpt-4o`, same credential as MKT-03) → **Parse JSON** → **Respond to Webhook** with `{ title, body }`.
+Recommended pattern: **Webhook** (POST `aeon-studio-generate`, Header Auth, `responseMode: responseNode`) → **Build prompt** (context pack + create/rewrite fields) → **OpenAI** (`gpt-4o`, same credential as MKT-03) → **Parse JSON** → **Respond to Webhook** with `{ title, body }`.
 
-Export: `n8n/workflows/studio-generate.json`. **Re-import over** cloud workflow `AEON Studio Generate` (id `58oYBY2ODlpRYhcc`) — do **not** create a second workflow. Re-attach the `OpenAI account` credential after import. Restrict the webhook (n8n Header Auth or VPN); HMAC is verified by Control Room on the way **out**, not inside n8n.
+Export: `n8n/workflows/studio-generate.json`. **Re-import over** cloud workflow `AEON Studio Generate` (id `58oYBY2ODlpRYhcc`) — do **not** create a second workflow. After import, attach:
+
+1. **OpenAI account** on the OpenAI node
+2. **Header Auth** on the Webhook (`X-AEON-Generate-Auth` = `N8N_GENERATE_SECRET`, same value Control Room sends)
+
+Control Room signs `X-N8N-Signature` and sends `X-AEON-Generate-Auth`. n8n Header Auth is the receiver gate; do not activate this webhook without it.
 
 Production URL: `https://agentsea.app.n8n.cloud/webhook/aeon-studio-generate` (workflow `AEON Studio Generate`, id `58oYBY2ODlpRYhcc`). Register in `N8N_GENERATE_WEBHOOK_URL`.
 

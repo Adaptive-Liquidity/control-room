@@ -17,7 +17,7 @@
         80
       ],
       "parameters": {
-        "content": "## Studio Generate webhook\nHMAC is verified by Control Room on the way **out** (Control Room signs requests with `N8N_GENERATE_SECRET` or `N8N_INGRESS_SECRET`). This n8n webhook should still be restricted — use n8n Header Auth or VPN. Do **not** duplicate MKT-04 Wait / resume flows.\n\nRe-import this export over workflow `58oYBY2ODlpRYhcc`; re-attach the **OpenAI account** credential on the OpenAI node.",
+        "content": "## Studio Generate webhook\nThis webhook **requires Header Auth** before activation. Create an n8n **Header Auth** credential:\n- Name: `X-AEON-Generate-Auth`\n- Value: the same string as Control Room `N8N_GENERATE_SECRET` (or `N8N_INGRESS_SECRET` if generate secret is unset)\n\nControl Room also signs `X-N8N-Signature` (timestamp + raw body). Header Auth is the receiver-side gate so a guessed path cannot spend OpenAI credits.\n\nRe-import over workflow `58oYBY2ODlpRYhcc`. Re-attach **OpenAI account** and **Studio Generate Header Auth**. Do **not** duplicate MKT-04 Wait / resume flows.",
         "height": 220,
         "width": 520,
         "color": 3
@@ -36,8 +36,15 @@
       "parameters": {
         "httpMethod": "POST",
         "path": "aeon-studio-generate",
+        "authentication": "headerAuth",
         "responseMode": "responseNode",
         "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "studio-generate-header-auth",
+          "name": "Studio Generate Header Auth"
+        }
       }
     },
     {
@@ -176,5 +183,5 @@
     "builderVariant": "mcp"
   },
   "pinData": {},
-  "versionId": "studio-generate-v1"
+  "versionId": "studio-generate-v2"
 }

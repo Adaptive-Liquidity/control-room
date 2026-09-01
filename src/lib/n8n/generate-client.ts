@@ -60,6 +60,7 @@ export async function callN8nGenerate(
         "Content-Type": "application/json",
         "X-N8N-Timestamp": timestamp,
         "X-N8N-Signature": signature,
+        "X-AEON-Generate-Auth": secret,
       },
       body,
       signal: AbortSignal.timeout(90_000),

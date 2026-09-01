@@ -339,7 +339,8 @@ export class ContentService {
         throw new ValidationServiceError('Cannot submit content with Guardian BLOCK result');
       }
     }
-    return db.content.update({
+    const previousStatus = content.status;
+    const updated = await db.content.update({
       where: { id },
       data: { status: 'PENDING_REVIEW' },
       include: {
@@ -348,6 +349,22 @@ export class ContentService {
         campaign: true,
       },
     });
+    await db.activityLog.create({
+      data: {
+        userId,
+        projectId,
+        type: 'CONTENT_UPDATED',
+        description: `Submitted for review: "${updated.title}"`,
+        metadata: { contentId: id, from: previousStatus, to: 'PENDING_REVIEW' },
+      },
+    });
+    await emitContentUpdated({
+      contentId: updated.id,
+      projectId,
+      revisionId: updated.currentRevisionId ?? undefined,
+      status: updated.status,
+    });
+    return updated;
   }
 
   async getById(id: string, projectId: string) {
