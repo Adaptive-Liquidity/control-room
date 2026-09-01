@@ -60,4 +60,22 @@ describe('generate-client', () => {
     expect(headers['X-N8N-Signature']).toMatch(/^[a-f0-9]{64}$/);
     expect(headers['X-N8N-Timestamp']).toMatch(/^\d+$/);
   });
+
+  it('does not send N8N_INGRESS_SECRET as generate Header Auth', async () => {
+    process.env.N8N_GENERATE_WEBHOOK_URL = 'https://n8n.example/webhook/aeon-studio-generate';
+    process.env.N8N_INGRESS_SECRET = 'ingress-secret';
+    const fetchMock = jest.fn();
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const result = await callN8nGenerate({
+      channel: 'TWITTER',
+      type: 'TWITTER_THREAD',
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain('N8N_GENERATE_SECRET');
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });

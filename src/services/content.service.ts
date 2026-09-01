@@ -52,6 +52,24 @@ export function hashContent(title: string, body: string): string {
   return createHash('sha256').update(`${title}\n${body}`).digest('hex');
 }
 
+async function lockEditableContent(
+  tx: Prisma.TransactionClient,
+  id: string,
+  projectId: string
+) {
+  const rows = await tx.$queryRaw<Array<{ id: string; status: string }>>`
+    SELECT id, status FROM contents WHERE id = ${id} AND "projectId" = ${projectId} FOR UPDATE
+  `;
+  const locked = rows[0];
+  if (!locked) throw new NotFoundError('Content not found');
+  if (!isStudioEditableStatus(locked.status)) {
+    throw new ConflictError(
+      `Cannot edit content in status ${locked.status}; must be DRAFT, REVISION_REQUESTED, or REJECTED`
+    );
+  }
+  return locked;
+}
+
 export class ContentService {
   async createRevision(
     contentId: string,
@@ -289,29 +307,26 @@ export class ContentService {
     };
 
     let updated;
-    if (revisionNeeded) {
+    if (attemptingContentWrite) {
       updated = await prisma.$transaction(async (tx) => {
         const scopedTx = scopedPrisma(projectId, tx);
-        const locked = await scopedTx.content.findUnique({ where: { id } });
-        if (!locked || !isStudioEditableStatus(locked.status)) {
-          throw new ConflictError(
-            `Cannot edit content in status ${locked?.status ?? 'UNKNOWN'}; must be DRAFT, REVISION_REQUESTED, or REJECTED`
+        await lockEditableContent(tx, id, projectId);
+        if (revisionNeeded) {
+          const { guardianResult } = await this.createRevision(
+            id,
+            {
+              title: nextTitle,
+              body: nextBody,
+              type: nextType,
+              channel: nextChannel,
+            },
+            userId,
+            projectId,
+            tx
           );
-        }
-        const { guardianResult } = await this.createRevision(
-          id,
-          {
-            title: nextTitle,
-            body: nextBody,
-            type: nextType,
-            channel: nextChannel,
-          },
-          userId,
-          projectId,
-          tx
-        );
-        if (guardianResult.result === 'BLOCK') {
-          throw new ValidationServiceError('Guardian BLOCK; revision not saved');
+          if (guardianResult.result === 'BLOCK') {
+            throw new ValidationServiceError('Guardian BLOCK; revision not saved');
+          }
         }
 
         const row = await scopedTx.content.update({
@@ -383,30 +398,34 @@ export class ContentService {
       }
     }
     const previousStatus = content.status;
-    const moved = await db.content.updateMany({
-      where: { id, status: { in: [...STUDIO_EDITABLE_STATUSES] } },
-      data: { status: 'PENDING_REVIEW' },
-    });
-    if (moved.count === 0) {
-      throw new ConflictError(`Cannot submit content in status ${content.status}`);
-    }
-    const updated = await db.content.findUnique({
-      where: { id },
-      include: {
-        author: true,
-        approvals: { include: { reviewer: true } },
-        campaign: true,
-      },
-    });
-    if (!updated) throw new NotFoundError('Content not found');
-    await db.activityLog.create({
-      data: {
-        userId,
-        projectId,
-        type: 'CONTENT_UPDATED',
-        description: `Submitted for review: "${updated.title}"`,
-        metadata: { contentId: id, from: previousStatus, to: 'PENDING_REVIEW' },
-      },
+    const updated = await prisma.$transaction(async (tx) => {
+      const scopedTx = scopedPrisma(projectId, tx);
+      const moved = await scopedTx.content.updateMany({
+        where: { id, status: { in: [...STUDIO_EDITABLE_STATUSES] } },
+        data: { status: 'PENDING_REVIEW' },
+      });
+      if (moved.count === 0) {
+        throw new ConflictError(`Cannot submit content in status ${content.status}`);
+      }
+      const row = await scopedTx.content.findUnique({
+        where: { id },
+        include: {
+          author: true,
+          approvals: { include: { reviewer: true } },
+          campaign: true,
+        },
+      });
+      if (!row) throw new NotFoundError('Content not found');
+      await scopedTx.activityLog.create({
+        data: {
+          userId,
+          projectId,
+          type: 'CONTENT_UPDATED',
+          description: `Submitted for review: "${row.title}"`,
+          metadata: { contentId: id, from: previousStatus, to: 'PENDING_REVIEW' },
+        },
+      });
+      return row;
     });
     await emitContentUpdated({
       contentId: updated.id,

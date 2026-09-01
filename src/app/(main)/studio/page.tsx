@@ -95,6 +95,7 @@ function StudioPageContent() {
   const activeContentId = savedDraft?.contentId ?? contentId;
   const activeRevisionId =
     savedDraft?.revisionId ?? detail?.content.currentRevisionId ?? null;
+  const isHydrating = Boolean(contentId) && hydratedId !== contentId;
 
   function invalidateSavedDraft() {
     setSavedDraft((prev) =>
@@ -102,6 +103,15 @@ function StudioPageContent() {
     );
     setAttachMessage(null);
   }
+
+  useEffect(() => {
+    setSavedDraft((prev) => {
+      if (!prev) return prev;
+      if (!contentId) return null;
+      if (prev.contentId !== contentId) return null;
+      return prev;
+    });
+  }, [contentId]);
 
   useEffect(() => {
     if (!contentId) {
@@ -292,10 +302,16 @@ function StudioPageContent() {
   };
 
   const isBusy =
-    createContent.isPending || updateContent.isPending || submitContent.isPending;
+    isHydrating ||
+    createContent.isPending ||
+    updateContent.isPending ||
+    submitContent.isPending ||
+    generate.isPending ||
+    rewrite.isPending;
 
   const save = async (status: "DRAFT" | "PENDING_REVIEW") => {
     setError(null);
+    if (isHydrating) return;
     if (!title.trim() || !body.trim()) {
       setError("Title and body are required");
       return;
@@ -459,7 +475,7 @@ function StudioPageContent() {
               <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto">
                 <Button
                   variant="outline"
-                  disabled={generate.isPending}
+                  disabled={isBusy}
                   onClick={() => generate.mutate()}
                   className="w-full sm:w-auto"
                 >
@@ -469,7 +485,7 @@ function StudioPageContent() {
                 {contentId && (
                   <Button
                     variant="outline"
-                    disabled={rewrite.isPending}
+                    disabled={isBusy || !contentId}
                     onClick={() => rewrite.mutate()}
                     className="w-full sm:w-auto"
                   >
@@ -615,7 +631,7 @@ function StudioPageContent() {
                   size="sm"
                   variant="outline"
                   className="w-full"
-                  disabled={!selectedAssetId || attach.isPending}
+                  disabled={!selectedAssetId || attach.isPending || isHydrating}
                   onClick={() => attach.mutate()}
                 >
                   {attach.isPending ? "Attaching…" : "Attach asset"}

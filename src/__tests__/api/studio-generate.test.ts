@@ -393,6 +393,7 @@ describe('n8n studio-generate Parse JSON', () => {
     const parse = workflow.nodes.find((n) => n.name === 'Parse JSON');
     const js = parse?.parameters?.jsCode ?? '';
     expect(js).toContain("throw new Error('Generate returned non-JSON')");
+    expect(js).toContain('typeof parsed !== \'object\'');
     expect(js).not.toContain("title: 'Draft'");
   });
 });

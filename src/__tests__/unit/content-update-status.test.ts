@@ -20,6 +20,7 @@ jest.mock('@/lib/prisma', () => {
       activityLog: model(),
       agentRun: model(),
       $transaction: jest.fn(),
+      $queryRaw: jest.fn(),
     },
   };
 });
@@ -61,6 +62,7 @@ const mockedPrisma = prisma as unknown as {
   campaign: { findFirst: jest.Mock; findUnique: jest.Mock };
   activityLog: { create: jest.Mock };
   $transaction: jest.Mock;
+  $queryRaw: jest.Mock;
 };
 
 const draftRow = {
@@ -81,6 +83,7 @@ describe('contentService.update status lock', () => {
     mockedPrisma.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) =>
       fn(prisma)
     );
+    mockedPrisma.$queryRaw.mockResolvedValue([{ id: 'c1', status: 'DRAFT' }]);
     mockedPrisma.activityLog.create.mockResolvedValue({});
   });
 
@@ -139,9 +142,26 @@ describe('contentService.update status lock', () => {
       { role: 'EDITOR' }
     );
 
-    expect(mockedPrisma.$transaction).not.toHaveBeenCalled();
+    expect(mockedPrisma.$transaction).toHaveBeenCalled();
     expect(mockedPrisma.contentRevision.create).not.toHaveBeenCalled();
     expect(mockedPrisma.content.update).toHaveBeenCalled();
+  });
+
+  it('refuses a revision write when the locked row is no longer editable', async () => {
+    mockedPrisma.content.findFirst.mockResolvedValue(draftRow);
+    mockedPrisma.$queryRaw.mockResolvedValue([{ id: 'c1', status: 'PENDING_REVIEW' }]);
+
+    await expect(
+      contentService.update(
+        'c1',
+        { title: 'New title', body: 'B', type: 'TWITTER_THREAD', channel: 'TWITTER' },
+        'ed-1',
+        'project-1',
+        { role: 'EDITOR' }
+      )
+    ).rejects.toBeInstanceOf(ConflictError);
+
+    expect(mockedPrisma.contentRevision.create).not.toHaveBeenCalled();
   });
 
   it('throws 400 when a supplied title is whitespace', async () => {

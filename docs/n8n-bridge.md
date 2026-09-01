@@ -30,7 +30,7 @@ Create at least one active user with role `SERVICE` — draft ingestion attribut
 | `N8N_RESUME_SECRET` | Control Room + n8n | HMAC for Control Room → n8n Wait resume callbacks (**separate** from ingress) |
 | `N8N_BRIDGE_ENCRYPTION_KEY` | Control Room only | AES-GCM for `N8nBridgeJob.resumeUrlEncrypted` |
 | `N8N_GENERATE_WEBHOOK_URL` | Control Room + n8n | Respond webhook for Studio **Generate with AI** (sync) |
-| `N8N_GENERATE_SECRET` | Control Room + n8n | HMAC for generate requests (falls back to `N8N_INGRESS_SECRET` if unset) |
+| `N8N_GENERATE_SECRET` | Control Room + n8n | HMAC + Header Auth for Studio generate. **Do not** reuse `N8N_INGRESS_SECRET`. |
 | `CRON_SECRET` | Control Room + scheduler | Bearer token for `/api/cron/outbox-drain` |
 | `PUSHER_*` / `NEXT_PUBLIC_PUSHER_*` | Control Room | Optional realtime; UI falls back to polling |
 | `FIREBASE_ADMIN_*` / `NEXT_PUBLIC_FIREBASE_*` | Control Room | Signed asset upload URLs (GCS) |
@@ -407,7 +407,7 @@ Human-initiated draft assist from Content Studio. Requires session + `content.ed
 
 ### Control Room → n8n request
 
-HMAC uses `N8N_GENERATE_SECRET` (or `N8N_INGRESS_SECRET` if generate secret unset):
+HMAC uses `N8N_GENERATE_SECRET` only (never `N8N_INGRESS_SECRET`):
 
 | Header | Value |
 |---|---|
@@ -452,7 +452,7 @@ HMAC uses `N8N_GENERATE_SECRET` (or `N8N_INGRESS_SECRET` if generate secret unse
 | Variable | Required | Notes |
 |---|---|---|
 | `N8N_GENERATE_WEBHOOK_URL` | Yes (for generate) | Production Respond webhook URL, e.g. `https://agentsea.app.n8n.cloud/webhook/aeon-studio-generate` |
-| `N8N_GENERATE_SECRET` | No | HMAC secret for outbound generate calls; falls back to `N8N_INGRESS_SECRET` when unset |
+| `N8N_GENERATE_SECRET` | Yes (for generate) | Distinct from `N8N_INGRESS_SECRET`. HMAC + `X-AEON-Generate-Auth` Header Auth. |
 
 Also documented in `.env.example`.
 
