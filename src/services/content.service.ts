@@ -9,6 +9,10 @@ import {
   emitContentCreated,
   emitContentUpdated,
 } from '@/lib/pusher/server';
+import {
+  assertStudioMutator,
+  isStudioEditableStatus,
+} from '@/lib/content/studio-mutate';
 import type { Content } from '@/types';
 
 export class ConflictError extends Error {
@@ -196,7 +200,8 @@ export class ContentService {
       scheduledAt?: Date | null;
     },
     userId: string,
-    projectId: string
+    projectId: string,
+    mutator?: { role: string }
   ) {
     const db = scopedPrisma(projectId, prisma);
     const content = await db.content.findUnique({ where: { id } });
@@ -207,6 +212,15 @@ export class ContentService {
       data.body !== undefined ||
       data.type !== undefined ||
       data.channel !== undefined;
+
+    if (mutator) {
+      assertStudioMutator({ userId, role: mutator.role, authorId: content.authorId });
+      if (contentFieldsChanged && !isStudioEditableStatus(content.status)) {
+        throw new ConflictError(
+          `Cannot edit content in status ${content.status}; must be DRAFT, REVISION_REQUESTED, or REJECTED`
+        );
+      }
+    }
 
     if (data.campaignId) {
       const campaign = await db.campaign.findUnique({
@@ -219,17 +233,23 @@ export class ContentService {
     }
 
     if (contentFieldsChanged) {
-      await this.createRevision(
-        id,
-        {
-          title: data.title ?? content.title,
-          body: data.body ?? content.body,
-          type: data.type ?? content.type,
-          channel: data.channel ?? content.channel,
-        },
-        userId,
-        projectId
-      );
+      await prisma.$transaction(async (tx) => {
+        const { guardianResult } = await this.createRevision(
+          id,
+          {
+            title: data.title ?? content.title,
+            body: data.body ?? content.body,
+            type: data.type ?? content.type,
+            channel: data.channel ?? content.channel,
+          },
+          userId,
+          projectId,
+          tx
+        );
+        if (guardianResult.result === 'BLOCK') {
+          throw new ValidationServiceError('Guardian BLOCK; revision not saved');
+        }
+      });
     }
 
     const updateData: Prisma.ContentUpdateInput = {
@@ -270,6 +290,42 @@ export class ContentService {
     });
 
     return updated;
+  }
+
+  async submit(id: string, userId: string, projectId: string, role: string) {
+    const db = scopedPrisma(projectId, prisma);
+    const content = await db.content.findUnique({ where: { id } });
+    if (!content) throw new ValidationServiceError('Content not found');
+    assertStudioMutator({ userId, role, authorId: content.authorId });
+    if (!isStudioEditableStatus(content.status)) {
+      throw new ConflictError(
+        `Cannot submit content in status ${content.status}`
+      );
+    }
+    if (!content.title.trim() || !content.body.trim()) {
+      const err = new Error('Title and body are required') as Error & { statusCode: number };
+      err.statusCode = 400;
+      err.name = 'BadRequestError';
+      throw err;
+    }
+    if (content.currentRevisionId) {
+      const revision = await prisma.contentRevision.findUnique({
+        where: { id: content.currentRevisionId },
+        select: { guardianResult: true },
+      });
+      if (revision?.guardianResult === 'BLOCK') {
+        throw new ValidationServiceError('Cannot submit content with Guardian BLOCK result');
+      }
+    }
+    return db.content.update({
+      where: { id },
+      data: { status: 'PENDING_REVIEW' },
+      include: {
+        author: true,
+        approvals: { include: { reviewer: true } },
+        campaign: true,
+      },
+    });
   }
 
   async getById(id: string, projectId: string) {
@@ -337,6 +393,25 @@ export class ContentService {
         })
       : null;
 
+    const assets = currentRevision
+      ? await prisma.contentAsset.findMany({
+          where: { contentRevisionId: currentRevision.id },
+          orderBy: { position: 'asc' },
+          include: {
+            asset: { select: { id: true, originalFilename: true, mimeType: true } },
+          },
+        })
+      : [];
+
+    const latestRevision = content.approvals.find((a) => a.status === 'NEEDS_REVISION') ?? null;
+    const revisionRequest = latestRevision
+      ? {
+          comment: latestRevision.comment,
+          reviewerName: latestRevision.reviewer.name,
+          createdAt: latestRevision.createdAt,
+        }
+      : null;
+
     const { approvals, ...contentFields } = content;
 
     return {
@@ -344,6 +419,8 @@ export class ContentService {
       currentRevision,
       priorRevision,
       approvals,
+      assets,
+      revisionRequest,
       guardian: currentRevision
         ? {
             policyVersion: currentRevision.guardianPolicyVersion,
