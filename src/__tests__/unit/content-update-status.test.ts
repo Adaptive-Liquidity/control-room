@@ -83,7 +83,16 @@ describe('contentService.update status lock', () => {
     mockedPrisma.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) =>
       fn(prisma)
     );
-    mockedPrisma.$queryRaw.mockResolvedValue([{ id: 'c1', status: 'DRAFT' }]);
+    mockedPrisma.$queryRaw.mockResolvedValue([
+      {
+        id: 'c1',
+        status: 'DRAFT',
+        title: 'T',
+        body: 'B',
+        type: 'TWITTER_THREAD',
+        channel: 'TWITTER',
+      },
+    ]);
     mockedPrisma.activityLog.create.mockResolvedValue({});
   });
 
@@ -162,6 +171,81 @@ describe('contentService.update status lock', () => {
     ).rejects.toBeInstanceOf(ConflictError);
 
     expect(mockedPrisma.contentRevision.create).not.toHaveBeenCalled();
+  });
+
+  it('builds the revision from the locked row, not the pre-transaction snapshot', async () => {
+    mockedPrisma.content.findFirst.mockResolvedValue({
+      ...draftRow,
+      title: 'Stale title',
+      body: 'Stale body',
+    });
+    mockedPrisma.$queryRaw.mockResolvedValue([
+      {
+        id: 'c1',
+        status: 'DRAFT',
+        title: 'Locked title',
+        body: 'Locked body',
+        type: 'TWITTER_THREAD',
+        channel: 'TWITTER',
+      },
+    ]);
+    (guardianService.checkContent as jest.Mock).mockResolvedValue({
+      score: 100,
+      result: 'ALLOW',
+      policyVersion: 'test',
+      checks: {},
+      flags: [],
+    });
+    mockedPrisma.contentRevision.findFirst.mockResolvedValue({ version: 1 });
+    mockedPrisma.contentRevision.create.mockResolvedValue({ id: 'r2', version: 2 });
+    mockedPrisma.content.update.mockResolvedValue({
+      ...draftRow,
+      title: 'Locked title',
+      body: 'New body',
+    });
+
+    await contentService.update(
+      'c1',
+      { body: 'New body' },
+      'ed-1',
+      'project-1',
+      { role: 'EDITOR' }
+    );
+
+    expect(mockedPrisma.contentRevision.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          title: 'Locked title',
+          body: 'New body',
+        }),
+      })
+    );
+  });
+
+  it('omits password from PATCH author includes', async () => {
+    mockedPrisma.content.findFirst.mockResolvedValue(draftRow);
+    mockedPrisma.content.update.mockResolvedValue({
+      ...draftRow,
+      author: { id: 'ed-1', name: 'Editor', email: 'editor@aeon.test' },
+    });
+
+    await contentService.update(
+      'c1',
+      { title: 'T', body: 'B', type: 'TWITTER_THREAD', channel: 'TWITTER' },
+      'ed-1',
+      'project-1',
+      { role: 'EDITOR' }
+    );
+
+    const includeArg = mockedPrisma.content.update.mock.calls[0][0].include as {
+      author: unknown;
+    };
+    expect(includeArg.author).not.toBe(true);
+    expect(includeArg.author).toEqual(
+      expect.objectContaining({
+        select: expect.objectContaining({ id: true, email: true }),
+      })
+    );
   });
 
   it('throws 400 when a supplied title is whitespace', async () => {

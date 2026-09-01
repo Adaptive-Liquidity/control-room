@@ -57,8 +57,20 @@ async function lockEditableContent(
   id: string,
   projectId: string
 ) {
-  const rows = await tx.$queryRaw<Array<{ id: string; status: string }>>`
-    SELECT id, status FROM contents WHERE id = ${id} AND "projectId" = ${projectId} FOR UPDATE
+  const rows = await tx.$queryRaw<
+    Array<{
+      id: string;
+      status: string;
+      title: string;
+      body: string;
+      type: ContentType;
+      channel: Channel;
+    }>
+  >`
+    SELECT id, status, title, body, type, channel
+    FROM contents
+    WHERE id = ${id} AND "projectId" = ${projectId}
+    FOR UPDATE
   `;
   const locked = rows[0];
   if (!locked) throw new NotFoundError('Content not found');
@@ -69,6 +81,22 @@ async function lockEditableContent(
   }
   return locked;
 }
+
+const publicUserSelect = {
+  id: true,
+  name: true,
+  email: true,
+  avatar: true,
+  role: true,
+} as const;
+
+const publicReviewerSelect = { id: true, name: true, email: true } as const;
+
+const studioWriteInclude = {
+  author: { select: publicUserSelect },
+  approvals: { include: { reviewer: { select: publicReviewerSelect } } },
+  campaign: true,
+} as const;
 
 export class ContentService {
   async createRevision(
@@ -210,9 +238,7 @@ export class ContentService {
       return tx.content.findUniqueOrThrow({
         where: { id: created.id },
         include: {
-          author: true,
-          approvals: { include: { reviewer: true } },
-          campaign: true,
+          ...studioWriteInclude,
           revisions: { orderBy: { version: 'desc' }, take: 1 },
         },
       });
@@ -270,16 +296,6 @@ export class ContentService {
       throw new BadRequestError('Title and body are required');
     }
 
-    const nextTitle = data.title !== undefined ? data.title.trim() : content.title;
-    const nextBody = data.body !== undefined ? data.body.trim() : content.body;
-    const nextType = data.type ?? content.type;
-    const nextChannel = data.channel ?? content.channel;
-    const revisionNeeded =
-      (data.title !== undefined && nextTitle !== content.title) ||
-      (data.body !== undefined && nextBody !== content.body) ||
-      (data.type !== undefined && data.type !== content.type) ||
-      (data.channel !== undefined && data.channel !== content.channel);
-
     if (data.campaignId) {
       const campaign = await db.campaign.findUnique({
         where: { id: data.campaignId },
@@ -300,17 +316,22 @@ export class ContentService {
         : {}),
     };
 
-    const include = {
-      author: true,
-      approvals: { include: { reviewer: true } },
-      campaign: true,
-    };
+    const include = studioWriteInclude;
 
     let updated;
     if (attemptingContentWrite) {
       updated = await prisma.$transaction(async (tx) => {
         const scopedTx = scopedPrisma(projectId, tx);
-        await lockEditableContent(tx, id, projectId);
+        const locked = await lockEditableContent(tx, id, projectId);
+        const nextTitle = data.title !== undefined ? data.title.trim() : locked.title;
+        const nextBody = data.body !== undefined ? data.body.trim() : locked.body;
+        const nextType = data.type ?? locked.type;
+        const nextChannel = data.channel ?? locked.channel;
+        const revisionNeeded =
+          (data.title !== undefined && nextTitle !== locked.title) ||
+          (data.body !== undefined && nextBody !== locked.body) ||
+          (data.type !== undefined && data.type !== locked.type) ||
+          (data.channel !== undefined && data.channel !== locked.channel);
         if (revisionNeeded) {
           const { guardianResult } = await this.createRevision(
             id,
@@ -409,11 +430,7 @@ export class ContentService {
       }
       const row = await scopedTx.content.findUnique({
         where: { id },
-        include: {
-          author: true,
-          approvals: { include: { reviewer: true } },
-          campaign: true,
-        },
+        include: studioWriteInclude,
       });
       if (!row) throw new NotFoundError('Content not found');
       await scopedTx.activityLog.create({
@@ -440,9 +457,7 @@ export class ContentService {
     return scopedPrisma(projectId, prisma).content.findUnique({
       where: { id },
       include: {
-        author: true,
-        approvals: { include: { reviewer: true } },
-        campaign: true,
+        ...studioWriteInclude,
         revisions: { orderBy: { version: 'desc' }, take: 5 },
       },
     });
