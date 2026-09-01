@@ -97,7 +97,9 @@ function StudioPageContent() {
     savedDraft?.revisionId ?? detail?.content.currentRevisionId ?? null;
 
   function invalidateSavedDraft() {
-    setSavedDraft(null);
+    setSavedDraft((prev) =>
+      prev ? { contentId: prev.contentId, revisionId: "" } : null
+    );
     setAttachMessage(null);
   }
 
