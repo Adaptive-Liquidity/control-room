@@ -107,7 +107,43 @@ function useDecisionMutation(path: (id: string) => string) {
 }
 
 export function useApproveContent() {
-  return useDecisionMutation((id) => `/api/queue/${id}/approve`);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      contentId,
+      revisionId,
+      comment,
+      edits,
+    }: {
+      contentId: string;
+      revisionId: string;
+      comment?: string;
+      edits?: { title?: string; body?: string };
+    }) => {
+      const res = await fetch(`/api/queue/${contentId}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          revisionId,
+          comment,
+          edits:
+            edits && (edits.title || edits.body)
+              ? {
+                  ...(edits.title ? { title: edits.title } : {}),
+                  ...(edits.body ? { body: edits.body } : {}),
+                }
+              : undefined,
+        }),
+      });
+      if (!res.ok) throw await parseApiError(res);
+      return res.json();
+    },
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['queue'] });
+      queryClient.invalidateQueries({ queryKey: ['content', vars.contentId] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+  });
 }
 
 export function useRejectContent() {
