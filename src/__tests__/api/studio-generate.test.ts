@@ -389,11 +389,17 @@ describe('n8n studio-generate Parse JSON', () => {
   it('throws on non-JSON instead of manufacturing a Draft', () => {
     const workflow = JSON.parse(
       readFileSync(join(process.cwd(), 'n8n/workflows/studio-generate.json'), 'utf8')
-    ) as { nodes: Array<{ name: string; parameters?: { jsCode?: string } }> };
+    ) as { nodes: Array<{ name: string; parameters?: { jsCode?: string; content?: string } }> };
+    const note = workflow.nodes.find((n) => n.name === 'Security note');
     const parse = workflow.nodes.find((n) => n.name === 'Parse JSON');
     const js = parse?.parameters?.jsCode ?? '';
     expect(js).toContain("throw new Error('Generate returned non-JSON')");
-    expect(js).toContain('typeof parsed !== \'object\'');
+    expect(js).toContain("typeof parsed.title !== 'string'");
     expect(js).not.toContain("title: 'Draft'");
+    expect(js).not.toContain('String(parsed.title)');
+    const noteText = (note?.parameters as { content?: string } | undefined)?.content ?? '';
+    expect(noteText).toContain('N8N_GENERATE_SECRET');
+    expect(noteText).toContain('do **not** reuse `N8N_INGRESS_SECRET`');
+    expect(noteText).not.toContain('if generate secret is unset');
   });
 });

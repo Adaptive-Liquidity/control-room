@@ -409,6 +409,7 @@ function StudioPageContent() {
             <Input
               placeholder="Title"
               value={title}
+              disabled={isHydrating}
               onChange={(e) => {
                 setTitle(e.target.value);
                 invalidateSavedDraft();
@@ -417,6 +418,7 @@ function StudioPageContent() {
             <div className="flex flex-wrap gap-3">
               <Select
                 value={channel}
+                disabled={isHydrating}
                 onValueChange={(v) => {
                   setChannel(v as (typeof CHANNELS)[number]);
                   invalidateSavedDraft();
@@ -435,6 +437,7 @@ function StudioPageContent() {
               </Select>
               <Select
                 value={type}
+                disabled={isHydrating}
                 onValueChange={(v) => {
                   setType(v as (typeof TYPES)[number]);
                   invalidateSavedDraft();
@@ -451,7 +454,7 @@ function StudioPageContent() {
                   ))}
                 </SelectContent>
               </Select>
-              <Select value={campaignId} onValueChange={setCampaignId}>
+              <Select value={campaignId} disabled={isHydrating} onValueChange={setCampaignId}>
                 <SelectTrigger className="w-[180px]">
                   <SelectValue placeholder="Campaign" />
                 </SelectTrigger>
@@ -500,6 +503,7 @@ function StudioPageContent() {
             className="min-h-[280px] resize-y rounded-none border-0 bg-card focus-visible:ring-0 sm:min-h-[400px]"
             placeholder="Start writing… Run Guardian before submit. AI fills title and body — you still save or submit manually."
             value={body}
+            disabled={isHydrating}
             onChange={(e) => {
               setBody(e.target.value);
               invalidateSavedDraft();
@@ -519,7 +523,7 @@ function StudioPageContent() {
           <Button
             variant="outline"
             onClick={() => void handleCheck()}
-            disabled={isChecking || !body.trim()}
+            disabled={isChecking || isHydrating || !body.trim()}
             className="w-full sm:w-auto"
           >
             {isChecking ? "Checking..." : "Run Guardian Check"}
