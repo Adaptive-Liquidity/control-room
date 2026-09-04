@@ -23,6 +23,7 @@ describe("MoreSheet", () => {
     render(<MoreSheet open onOpenChange={() => {}} />);
     expect(screen.getByRole("dialog", { name: "Menu" })).toBeInTheDocument();
     for (const label of [
+      "Chief of Staff",
       "Studio",
       "Attribution",
       "Analytics",

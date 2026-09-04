@@ -15,6 +15,7 @@ import { ProjectSwitcher } from "@/components/layout/project-switcher";
 
 const pageTitles: Record<string, { title: string; subtitle: string }> = {
   "/dashboard": { title: "Dashboard", subtitle: "Operations overview" },
+  "/staff": { title: "Chief of Staff", subtitle: "Triage work. Nothing executes until you approve." },
   "/agents": { title: "Agents", subtitle: "Creator, publisher, analyzer, guardian" },
   "/queue": { title: "Approval queue", subtitle: "Review and release content" },
   "/studio": { title: "Content studio", subtitle: "Draft with Guardian pre-flight" },

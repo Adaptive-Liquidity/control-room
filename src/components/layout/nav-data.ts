@@ -1,6 +1,7 @@
 import {
   Beaker,
   Bot,
+  Briefcase,
   CalendarDays,
   FolderOpen,
   GitBranch,
@@ -31,6 +32,7 @@ export const navSections: NavSection[] = [
     title: "Command",
     items: [
       { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
+      { icon: Briefcase, label: "Chief of Staff", href: "/staff" },
       { icon: Bot, label: "Agents", href: "/agents" },
       { icon: Inbox, label: "Queue", href: "/queue" },
       { icon: PenLine, label: "Studio", href: "/studio" },
