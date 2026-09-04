@@ -25,6 +25,7 @@ describe("nav-data", () => {
     }
     // Studio is not a primary tab but must stay reachable via More
     expect(moreHrefs).toContain("/studio");
+    expect(moreHrefs).toContain("/staff");
     // Every nav item is reachable: either a primary tab or in More
     const all = navSections.flatMap((s) => s.items.map((i) => i.href));
     for (const href of all) {

@@ -26,6 +26,8 @@ export const config = {
     '/setup/:path*',
     '/dashboard',
     '/dashboard/:path*',
+    '/staff',
+    '/staff/:path*',
     '/agents',
     '/agents/:path*',
     '/queue',
