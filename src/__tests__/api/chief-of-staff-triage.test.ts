@@ -80,6 +80,24 @@ describe('POST /api/chief-of-staff/triage', () => {
       approvalRequired: false,
     });
     expect(data.intake.request).toContain('competitor');
+    expect(data.productReadiness).toBeNull();
+  });
+
+  it('attaches a blocked product brief gate for PRODUCT work', async () => {
+    (getServerSession as jest.Mock).mockResolvedValue(session('ADMIN', 'adm-1'));
+    const res = await post({
+      request: 'Write a product requirement for the onboarding feature.',
+    });
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.triage.department).toBe('PRODUCT');
+    expect(data.productReadiness).toMatchObject({
+      status: 'BLOCKED',
+      score: 0,
+    });
+    expect(data.productReadiness.missingFields).toEqual(
+      expect.arrayContaining(['problem', 'targetUser', 'desiredOutcome'])
+    );
   });
 
   it('flags high-risk customer contact as approval required', async () => {

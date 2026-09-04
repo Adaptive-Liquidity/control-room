@@ -10,6 +10,7 @@ import {
 } from '@/lib/project/context';
 import { chiefOfStaffIntakeSchema } from '@/lib/chief-of-staff/contracts';
 import { triageFounderRequest } from '@/lib/chief-of-staff/triage';
+import { productReadinessForTriage } from '@/lib/chief-of-staff/product-gate';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -36,6 +37,11 @@ export async function POST(req: NextRequest) {
       ...body,
       projectId: ctx.projectId,
     });
+    const productReadiness = productReadinessForTriage(
+      ctx.projectId,
+      body.request,
+      triage.department
+    );
 
     return NextResponse.json({
       projectId: ctx.projectId,
@@ -46,6 +52,7 @@ export async function POST(req: NextRequest) {
         effort: body.effort,
       },
       triage,
+      productReadiness,
     });
   } catch (error) {
     if (error instanceof ForbiddenError) {

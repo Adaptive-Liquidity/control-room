@@ -19,10 +19,18 @@ type TriageResult = {
   reasons: string[];
 };
 
+type ProductReadiness = {
+  status: "BLOCKED" | "NEEDS_DISCOVERY" | "READY_FOR_REVIEW";
+  score: number;
+  missingFields: string[];
+  recommendations: string[];
+};
+
 type TriageResponse = {
   projectId: string;
   intake: { request: string; urgency: number; impact: number; effort: number };
   triage: TriageResult;
+  productReadiness: ProductReadiness | null;
 };
 
 const SCORE_OPTIONS = [1, 2, 3, 4, 5] as const;
@@ -31,6 +39,12 @@ function priorityVariant(priority: TriageResult["priority"]) {
   if (priority === "NOW") return "destructive" as const;
   if (priority === "NEXT") return "warning" as const;
   return "secondary" as const;
+}
+
+function productStatusVariant(status: ProductReadiness["status"]) {
+  if (status === "BLOCKED") return "destructive" as const;
+  if (status === "NEEDS_DISCOVERY") return "warning" as const;
+  return "success" as const;
 }
 
 function riskVariant(risk: TriageResult["riskTier"]) {
@@ -105,6 +119,7 @@ export default function StaffPage() {
   });
 
   const t = result?.triage;
+  const product = result?.productReadiness;
 
   return (
     <div className="mx-auto max-w-3xl space-y-5">
@@ -167,6 +182,31 @@ export default function StaffPage() {
                 <li key={reason}>{reason}</li>
               ))}
             </ul>
+          </CardContent>
+        </Card>
+      )}
+
+      {product && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle>Product brief gate</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap gap-2">
+              <Badge variant={productStatusVariant(product.status)}>{product.status.replace(/_/g, " ")}</Badge>
+              <Badge variant="outline">score {product.score}</Badge>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              The request was routed to Product. This gate does not invent a brief — it lists what is
+              still missing before review.
+            </p>
+            {product.recommendations.length > 0 && (
+              <ul className="space-y-1 text-sm text-muted-foreground">
+                {product.recommendations.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            )}
           </CardContent>
         </Card>
       )}
