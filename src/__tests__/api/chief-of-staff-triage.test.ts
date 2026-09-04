@@ -81,6 +81,11 @@ describe('POST /api/chief-of-staff/triage', () => {
     });
     expect(data.intake.request).toContain('competitor');
     expect(data.productReadiness).toBeNull();
+    expect(data.researchReadiness).toMatchObject({
+      status: 'BLOCKED',
+      score: 0,
+    });
+    expect(data.researchReadiness.missingFields).toContain('question');
   });
 
   it('attaches a blocked product brief gate for PRODUCT work', async () => {
@@ -98,6 +103,7 @@ describe('POST /api/chief-of-staff/triage', () => {
     expect(data.productReadiness.missingFields).toEqual(
       expect.arrayContaining(['problem', 'targetUser', 'desiredOutcome'])
     );
+    expect(data.researchReadiness).toBeNull();
   });
 
   it('flags high-risk customer contact as approval required', async () => {
@@ -110,5 +116,7 @@ describe('POST /api/chief-of-staff/triage', () => {
     const data = await res.json();
     expect(data.triage.approvalRequired).toBe(true);
     expect(data.triage.riskTier).toBe('HIGH');
+    expect(data.productReadiness).toBeNull();
+    expect(data.researchReadiness).toBeNull();
   });
 });

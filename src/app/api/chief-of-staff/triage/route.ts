@@ -11,6 +11,7 @@ import {
 import { chiefOfStaffIntakeSchema } from '@/lib/chief-of-staff/contracts';
 import { triageFounderRequest } from '@/lib/chief-of-staff/triage';
 import { productReadinessForTriage } from '@/lib/chief-of-staff/product-gate';
+import { researchReadinessForTriage } from '@/lib/chief-of-staff/research-gate';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -42,6 +43,11 @@ export async function POST(req: NextRequest) {
       body.request,
       triage.department
     );
+    const researchReadiness = researchReadinessForTriage(
+      ctx.projectId,
+      body.request,
+      triage.department
+    );
 
     return NextResponse.json({
       projectId: ctx.projectId,
@@ -53,6 +59,7 @@ export async function POST(req: NextRequest) {
       },
       triage,
       productReadiness,
+      researchReadiness,
     });
   } catch (error) {
     if (error instanceof ForbiddenError) {
