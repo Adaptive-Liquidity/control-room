@@ -261,6 +261,8 @@ Manual Trigger
 
 Optional stage feeding Creator. Outputs `researchBrief` JSON consumed by the Creator prompt. Uses `gpt-4o-mini`. Seed `researcher` agent if you also emit AgentRuns for this stage.
 
+**Upgrade design (not applied yet):** replace the single no-tool LLM with search + synthesis inside this same workflow. Do not import a second researcher webhook. See [n8n-mkt-02-researcher-upgrade.md](./n8n-mkt-02-researcher-upgrade.md).
+
 ### MKT-03 — Content Generation
 
 ```text
