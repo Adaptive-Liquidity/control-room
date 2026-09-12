@@ -233,6 +233,7 @@ Versioned exports (re-importable into n8n):
 |---|---|
 | Control Room - Ingress HMAC (`crypto`) | `N8N_INGRESS_SECRET` — drafts, receipts, agent-runs, metrics, attribution, policy-check |
 | OpenAI account | MKT-02 Researcher (`gpt-4o-mini`), MKT-03 Creator (`gpt-4o`) |
+| Exa API (Header Auth `x-api-key`) | MKT-02 Exa search — attach after importing `mkt-03-04-05.json`. Never put the key in Vercel. |
 | (optional) Header Auth / resume | Prefer Control Room signing resume with `N8N_RESUME_SECRET`; keep **separate** from ingress |
 
 **Canonical `agentName` strings** (must match seeded `Agent.name` via `npm run db:seed-agents`):
@@ -245,7 +246,8 @@ Versioned exports (re-importable into n8n):
 Manual Trigger
 → Config Base URL (https://hq.adaptiveliquidity.com)
 → Build / HMAC / POST policy-check → Assert allowed
-→ MKT-02 Researcher LLM (OpenAI) → Parse Research JSON
+→ MKT-02 Build research task → Exa search → Prepare messages
+→ MKT-02 Researcher LLM (OpenAI) → Parse Research JSON (throws on non-JSON)
 → MKT-03 Creator LLM (OpenAI) → Parse Creator JSON
 → MKT-09 AgentRun RUNNING (HMAC → /agent-runs)
 → Generate eventId + externalDraftId → Normalize draft → HMAC → POST /drafts
@@ -259,9 +261,9 @@ Manual Trigger
 
 ### MKT-02 — Researcher
 
-Optional stage feeding Creator. Outputs `researchBrief` JSON consumed by the Creator prompt. Uses `gpt-4o-mini`. Seed `researcher` agent if you also emit AgentRuns for this stage.
+Feeds Creator. One Exa search + `gpt-4o-mini` synthesis. System message is `policy.contextPack` from policy-check. Parse **throws** on non-JSON and keeps only Exa URLs/ids as `sources`. Still emits `researchBrief` as a **string** for the existing Creator node (`promptVersionResearch`: `mkt-02-v2`).
 
-**Upgrade design (not applied yet):** replace the single no-tool LLM with search + synthesis inside this same workflow. Do not import a second researcher webhook. See [n8n-mkt-02-researcher-upgrade.md](./n8n-mkt-02-researcher-upgrade.md).
+Re-import [`mkt-03-04-05.json`](../n8n/workflows/mkt-03-04-05.json) **over** [`Mr2NsTTTVKvuGZKa`](https://agentsea.app.n8n.cloud/workflow/Mr2NsTTTVKvuGZKa) and attach **Exa API** Header Auth (`x-api-key`). Do not import a second researcher webhook. Researcher must not POST `/drafts`. Details: [n8n-mkt-02-researcher-upgrade.md](./n8n-mkt-02-researcher-upgrade.md).
 
 ### MKT-03 — Content Generation
 

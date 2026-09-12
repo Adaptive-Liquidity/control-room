@@ -663,9 +663,9 @@
     },
     {
       "parameters": {
-        "content": "## ⚙ CONFIGURATION\n- **CONTROL_ROOM_BASE_URL**: enter it in the **Config Base URL** node (Value field). No trailing slash.\n  It is reused for drafts, policy-check, agent-runs, and publish-receipt.\n- **projectId**: default `proj_aeon` (migration seed). Required on policy-check + drafts so Control Room can inject the composed context pack.\n- **Staging is the default.** No real social publishing happens until you attach production credentials on the per-channel publisher nodes.",
-        "height": 220,
-        "width": 460,
+        "content": "## ⚙ CONFIGURATION\n- **CONTROL_ROOM_BASE_URL**: enter it in the **Config Base URL** node (Value field). No trailing slash.\n  It is reused for drafts, policy-check, agent-runs, and publish-receipt.\n- **projectId**: default `proj_aeon` (migration seed). Required on policy-check + drafts so Control Room can inject the composed context pack.\n- **Exa API**: after import, attach Header Auth credential **Exa API** (`x-api-key` = Exa key) to **MKT-02 ▪ Exa search**. Do not commit the key. Researcher must not POST `/drafts`.\n- Re-import this file **over** existing workflow `Mr2NsTTTVKvuGZKa`. Do not duplicate. Do not touch Studio Generate `58oYBY2ODlpRYhcc`.\n- **Staging is the default.** No real social publishing happens until you attach production credentials on the per-channel publisher nodes.",
+        "height": 280,
+        "width": 520,
         "color": 4
       },
       "id": "a54c4fad-5c57-4b8f-8e6a-b59a50dccf26",
@@ -1100,12 +1100,65 @@
       }
     },
     {
+      "id": "a1e2c3d4-5b6f-4789-8abc-def012345678",
+      "name": "MKT-02 ▪ Build research task",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        640
+      ],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nconst policy = j.policy && typeof j.policy === 'object' ? j.policy : {};\nconst pack = policy.contextPack && typeof policy.contextPack === 'object' ? policy.contextPack : null;\nconst identity = (pack && pack.promptCore && pack.promptCore.identity && typeof pack.promptCore.identity === 'object')\n  ? pack.promptCore.identity\n  : {};\nconst name = (typeof identity.name === 'string' && identity.name.trim()) ? identity.name.trim() : 'AEON';\nconst legal = (typeof identity.legalName === 'string' && identity.legalName.trim())\n  ? identity.legalName.trim()\n  : 'Adaptive Liquidity';\nconst oneLiner = (typeof identity.oneLiner === 'string') ? identity.oneLiner.trim() : '';\nconst projectId = $('Config Base URL').item.json.projectId || 'proj_aeon';\n\nconst question = 'Which treasury-ops / on-chain cash-management products should ' + name + ' position against this week?';\nconst queryParts = [legal, name, 'competitors', 'institutional DeFi treasury operations on-chain cash management'];\nif (oneLiner) queryParts.push(oneLiner);\nconst query = queryParts.filter(Boolean).join(' ').slice(0, 400);\n\nconst exaBody = {\n  query: query,\n  numResults: 8,\n  type: 'auto',\n  contents: { text: { maxCharacters: 1200 } }\n};\n\nconst system = pack\n  ? JSON.stringify(pack)\n  : 'Follow Adaptive Liquidity / AEON brand voice. No yield promises. Do not invent sources.';\n\nreturn [{ json: {\n  policyAllowed: j.policyAllowed === true,\n  policy: policy,\n  contextPack: pack,\n  projectId: projectId,\n  question: question,\n  query: query,\n  exaBody: exaBody,\n  system: system\n} }];\n"
+      }
+    },
+    {
+      "id": "c9d8e7f6-5a4b-4321-9fed-cba987654321",
+      "name": "MKT-02 ▪ Exa search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        448,
+        640
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.exa.ai/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify($json.exaBody) }}",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "exa-api-header-auth",
+          "name": "Exa API"
+        }
+      }
+    },
+    {
+      "id": "d0e1f2a3-b4c5-4678-9abc-0123456789ab",
+      "name": "MKT-02 ▪ Prepare researcher messages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        640
+      ],
+      "parameters": {
+        "jsCode": "const built = $('MKT-02 ▪ Build research task').item.json;\nconst exa = $input.first().json;\nconst results = Array.isArray(exa.results)\n  ? exa.results\n  : (exa.body && Array.isArray(exa.body.results) ? exa.body.results : []);\n\nconst hits = [];\nconst allowed = [];\nfor (let i = 0; i < results.length; i++) {\n  const r = results[i] || {};\n  const url = typeof r.url === 'string' ? r.url.trim() : '';\n  const id = typeof r.id === 'string' ? r.id.trim() : '';\n  if (!url && !id) continue;\n  const sourceId = id || ('exa-' + (i + 1));\n  const title = typeof r.title === 'string' ? r.title : '';\n  const text = typeof r.text === 'string' ? r.text.slice(0, 1200) : '';\n  hits.push({\n    sourceId: sourceId,\n    title: title.slice(0, 200),\n    url: url || null,\n    publishedDate: r.publishedDate || null,\n    snippet: text\n  });\n  allowed.push(sourceId);\n  if (url && url !== sourceId) allowed.push(url);\n  if (id && id !== sourceId) allowed.push(id);\n}\n\nconst user = [\n  'Research question: ' + built.question,\n  '',\n  'Search hits (the ONLY allowed citations). Do not invent URLs, publishers, or source labels that are not in this list. If hits are empty, set evidence to [] and openQuestions to explain the gap. Do not invent competitors.',\n  '',\n  JSON.stringify(hits),\n  '',\n  'Return ONLY valid JSON (no markdown) with keys:',\n  'schemaVersion (\"1\"),',\n  'question (string, restated),',\n  'summary (2-4 sentences, no yield promises),',\n  'angles (array of up to 3 short campaign angles),',\n  'risks (array of compliance risks to avoid),',\n  'sources (array of { id, url, title } drawn ONLY from the search hits; empty array if no hits),',\n  'evidence (array of { finding, sourceIds, confidence: HIGH|MEDIUM|LOW }),',\n  'openQuestions (array of strings).',\n  'Every sources[].url or sources[].id MUST match a search hit. Never fabricate citations.'\n].join('\\n');\n\nreturn [{ json: {\n  system: built.system,\n  user: user,\n  question: built.question,\n  hits: hits,\n  allowedSourceLocators: allowed,\n  searchHitCount: hits.length\n} }];\n"
+      }
+    },
+    {
       "id": "583bfcc2-63f7-4f4a-998f-c8bd4c265bc1",
       "name": "MKT-02 ▪ Researcher LLM (OpenAI)",
       "type": "@n8n/n8n-nodes-langchain.openAi",
       "typeVersion": 2.3,
       "position": [
-        336,
+        896,
         640
       ],
       "parameters": {
@@ -1120,7 +1173,12 @@
         "responses": {
           "values": [
             {
-              "content": "You are AEON Researcher for Adaptive Liquidity Labs.\nReturn ONLY valid JSON (no markdown) with keys:\nsummary (2-4 sentences on current DeFi/treasury narrative worth marketing),\nangles (array of 3 short campaign angles),\nrisks (array of compliance risks to avoid),\nsources (array of short source labels, can be hypothetical public themes).\nFocus on professional institutional DeFi / AEON Control Room positioning.",
+              "content": "={{ $json.system }}",
+              "role": "system",
+              "type": "text"
+            },
+            {
+              "content": "={{ $json.user }}",
               "role": "user",
               "type": "text"
             }
@@ -1141,12 +1199,29 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        560,
+        1120,
         640
       ],
       "parameters": {
-        "jsCode": "const item = $input.first().json;\nlet text = '';\nif (typeof item.output === 'string') text = item.output;\nelse if (typeof item.text === 'string') text = item.text;\nelse if (item.message && typeof item.message.content === 'string') text = item.message.content;\nelse text = JSON.stringify(item);\nconst fence = text.match(/```(?:json)?\\s*([\\s\\S]*?)```/i);\nif (fence) text = fence[1];\nconst start = text.indexOf('{');\nconst end = text.lastIndexOf('}');\nif (start >= 0 && end > start) text = text.slice(start, end + 1);\nlet parsed;\ntry { parsed = JSON.parse(text); } catch (e) {\n  parsed = { summary: text.slice(0, 500), angles: [], risks: [], sources: [] };\n}\nreturn [{ json: {\n  research: parsed,\n  researchBrief: JSON.stringify(parsed),\n  modelAliasResearch: 'gpt-4o-mini',\n  promptVersionResearch: 'mkt-02-v1'\n} }];"
+        "jsCode": "function extractText(item) {\n  let text = '';\n  if (typeof item.output === 'string') {\n    text = item.output;\n  } else if (Array.isArray(item.output)) {\n    const parts = [];\n    for (const msg of item.output) {\n      if (!msg || typeof msg !== 'object') continue;\n      const content = msg.content;\n      if (typeof content === 'string') {\n        parts.push(content);\n        continue;\n      }\n      if (!Array.isArray(content)) continue;\n      for (const part of content) {\n        if (!part || typeof part !== 'object') continue;\n        if (typeof part.output_text === 'string') parts.push(part.output_text);\n        else if (typeof part.text === 'string') parts.push(part.text);\n      }\n    }\n    text = parts.join('');\n  } else if (typeof item.text === 'string') {\n    text = item.text;\n  } else if (item.message && typeof item.message.content === 'string') {\n    text = item.message.content;\n  } else if (Array.isArray(item.choices) && item.choices[0] && item.choices[0].message && typeof item.choices[0].message.content === 'string') {\n    text = item.choices[0].message.content;\n  } else {\n    text = JSON.stringify(item);\n  }\n  return text;\n}\n\nfunction asNonEmptyString(v) {\n  return typeof v === 'string' && v.trim().length > 0 ? v.trim() : '';\n}\n\nfunction locatorSet(list) {\n  const s = new Set();\n  if (!Array.isArray(list)) return s;\n  for (const loc of list) {\n    if (typeof loc === 'string' && loc.trim()) s.add(loc.trim());\n  }\n  return s;\n}\n\nfunction sourceMatches(src, allowed) {\n  if (allowed.size === 0) return false;\n  if (typeof src === 'string') {\n    for (const loc of allowed) {\n      if (src.indexOf(loc) !== -1) return true;\n    }\n    return false;\n  }\n  if (!src || typeof src !== 'object') return false;\n  const url = asNonEmptyString(src.url);\n  const id = asNonEmptyString(src.id);\n  if (url && allowed.has(url)) return true;\n  if (id && allowed.has(id)) return true;\n  return false;\n}\n\nfunction toSourceLabel(src) {\n  if (typeof src === 'string') return src.trim();\n  if (!src || typeof src !== 'object') return '';\n  const title = asNonEmptyString(src.title);\n  const url = asNonEmptyString(src.url) || asNonEmptyString(src.id);\n  return [title, url].filter(Boolean).join(' — ');\n}\n\nconst item = $input.first().json;\nlet text = extractText(item);\nconst fence = text.match(/```(?:json)?\\s*([\\s\\S]*?)```/i);\nif (fence) text = fence[1];\nconst start = text.indexOf('{');\nconst end = text.lastIndexOf('}');\nif (start >= 0 && end > start) text = text.slice(start, end + 1);\n\nlet parsed;\ntry {\n  parsed = JSON.parse(text);\n} catch (e) {\n  throw new Error('Researcher returned non-JSON');\n}\nif (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {\n  throw new Error('Researcher returned invalid shape (expected question + summary)');\n}\n\nconst question = asNonEmptyString(parsed.question);\nconst summary = asNonEmptyString(parsed.summary);\nif (!question || !summary) {\n  throw new Error('Researcher returned invalid shape (expected question + summary)');\n}\n\nconst prepared = $('MKT-02 ▪ Prepare researcher messages').item.json;\nif (!prepared || typeof prepared !== 'object') {\n  throw new Error('Missing Prepare researcher messages');\n}\nconst allowed = locatorSet(prepared.allowedSourceLocators);\nconst searchHitCount = Number(prepared.searchHitCount) || 0;\n\nconst rawSources = Array.isArray(parsed.sources) ? parsed.sources : [];\nconst keptSources = [];\nfor (const src of rawSources) {\n  if (searchHitCount === 0) continue;\n  if (!sourceMatches(src, allowed)) continue;\n  const label = toSourceLabel(src);\n  if (label) keptSources.push(label);\n}\n\nconst rawEvidence = Array.isArray(parsed.evidence) ? parsed.evidence : [];\nconst evidence = [];\nfor (const ev of rawEvidence) {\n  if (searchHitCount === 0) continue;\n  if (!ev || typeof ev !== 'object') continue;\n  const finding = asNonEmptyString(ev.finding);\n  if (!finding) continue;\n  const ids = Array.isArray(ev.sourceIds)\n    ? ev.sourceIds.filter((id) => typeof id === 'string' && allowed.has(id))\n    : [];\n  evidence.push({\n    finding: finding,\n    sourceIds: ids,\n    confidence: asNonEmptyString(ev.confidence) || 'LOW'\n  });\n}\n\nconst angles = Array.isArray(parsed.angles)\n  ? parsed.angles.filter((a) => typeof a === 'string' && a.trim()).map((a) => a.trim()).slice(0, 3)\n  : [];\nconst risks = Array.isArray(parsed.risks)\n  ? parsed.risks.filter((a) => typeof a === 'string' && a.trim()).map((a) => a.trim())\n  : [];\nconst openQuestions = Array.isArray(parsed.openQuestions)\n  ? parsed.openQuestions.filter((a) => typeof a === 'string' && a.trim()).map((a) => a.trim())\n  : [];\n\nif (searchHitCount === 0) {\n  if (openQuestions.length === 0) {\n    throw new Error('Researcher returned no search hits and no openQuestions');\n  }\n}\n\nif (searchHitCount > 0 && keptSources.length === 0 && openQuestions.length === 0) {\n  throw new Error('Researcher cited no search hits; add openQuestions or cite Exa URLs');\n}\n\nconst research = {\n  schemaVersion: '1',\n  question: question,\n  summary: summary,\n  angles: angles,\n  risks: risks,\n  sources: keptSources,\n  evidence: searchHitCount === 0 ? [] : evidence,\n  openQuestions: openQuestions\n};\n\nreturn [{ json: {\n  research: research,\n  researchBrief: JSON.stringify(research),\n  modelAliasResearch: 'gpt-4o-mini',\n  promptVersionResearch: 'mkt-02-v2',\n  searchHitCount: searchHitCount\n} }];\n"
       }
+    },
+    {
+      "parameters": {
+        "content": "## MKT-02 Researcher (v2)\nAfter **Assert Policy Allowed**: Build research task (contextPack) → **one Exa search** → Researcher LLM (system = pack) → Parse JSON (**throws** on non-JSON).\n- Sources **must** come from Exa hits. No hypothetical citations.\n- `researchBrief` stays a **string** for existing Creator.\n- Attach **Exa API** Header Auth (`x-api-key`). Re-attach OpenAI if needed.\n- Do **not** add Notion / Sheets / Gmail. Do **not** POST `/drafts` from this stage.\n- Re-import over `Mr2NsTTTVKvuGZKa` only.",
+        "height": 300,
+        "width": 480,
+        "color": 4
+      },
+      "id": "b2c4e6a8-1d3f-4a5b-9c7e-0f1a2b3c4d5e",
+      "name": "Sticky Note MKT-02 Researcher",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        200,
+        400
+      ],
+      "disabled": true
     }
   ],
   "connections": {
@@ -1646,7 +1721,7 @@
       "main": [
         [
           {
-            "node": "MKT-02 ▪ Researcher LLM (OpenAI)",
+            "node": "MKT-02 ▪ Build research task",
             "type": "main",
             "index": 0
           }
@@ -1674,6 +1749,39 @@
           }
         ]
       ]
+    },
+    "MKT-02 ▪ Build research task": {
+      "main": [
+        [
+          {
+            "node": "MKT-02 ▪ Exa search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-02 ▪ Exa search": {
+      "main": [
+        [
+          {
+            "node": "MKT-02 ▪ Prepare researcher messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MKT-02 ▪ Prepare researcher messages": {
+      "main": [
+        [
+          {
+            "node": "MKT-02 ▪ Researcher LLM (OpenAI)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "meta": {
@@ -1681,5 +1789,5 @@
     "builderVariant": "mcp"
   },
   "pinData": {},
-  "versionId": "c80f61e7-e4f4-4c43-b907-1f251c82fa71"
+  "versionId": "e7a1c2b3-4d5e-4678-9f01-23456789abcd"
 }

@@ -10,4 +10,4 @@ Importable snapshots of the AEON Control Room execution plane (n8n Cloud).
 
 Contracts, HMAC, and node map: [docs/n8n-bridge.md](../../docs/n8n-bridge.md).
 
-After import, re-attach credentials (Ingress HMAC crypto + OpenAI). Do not commit secret values. Re-export from n8n when the live canvas changes meaningfully.
+After import, re-attach credentials (Ingress HMAC crypto + OpenAI + **Exa API** Header Auth `x-api-key` on MKT-02). Import `mkt-03-04-05.json` **over** `Mr2NsTTTVKvuGZKa` — do not duplicate. Do not commit secret values. Re-export from n8n when the live canvas changes meaningfully.
